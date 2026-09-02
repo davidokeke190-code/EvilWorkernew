@@ -1,0 +1,12 @@
+{
+  "name": "evilworker",
+  "version": "1.0.0",
+  "description": "EvilWorker AiTM framework",
+  "main": "proxy_server.js",
+  "scripts": {
+    "start": "node proxy_server.js"
+  },
+  "engines": {
+    "node": ">=22.15.0"
+  }
+}
