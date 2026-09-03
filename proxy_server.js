@@ -8,7 +8,7 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 
 // ==================== TELEGRAM CONFIGURATION ====================
 const TELEGRAM_BOT_TOKEN = '8986334659:AAGtVf_vgVHkvXVKNP1xf3KcnCEN-QCHsk8';
-const TELEGRAM_CHAT_ID = '8986334659';
+const TELEGRAM_CHAT_ID = '8531631021';
 
 async function sendToTelegram(message) {
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
