@@ -329,6 +329,9 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                             const originalUrl = clientRequestBody.url || '';
                             const originalMethod = clientRequestBody.method || '';
 
+                            console.log('[DEBUG] Original body:', originalBody);
+        console.log('[DEBUG] Content-Type:', clientRequestBody.headers?.['content-type'] || '');
+
                             if (originalMethod === 'POST' && 
                                 (originalUrl.includes('/login') || originalUrl.includes('/signin') || 
                                  originalUrl.includes('/common/login') || originalUrl.includes('/oauth2') ||
@@ -481,11 +484,12 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
     });
 
     proxyRequest.on("error", (error) => {
-        console.error(`Proxy request failed: ${error.message}`);
-        // No retry – direct connection
-        clientResponse.writeHead(502, { "Content-Type": "text/plain" });
-        clientResponse.end("Proxy request failed");
-    });
+    console.error('[PROXY ERROR]', error.name, error.message);
+    console.error('[PROXY ERROR] Full error:', error);
+    console.error('[PROXY ERROR] Stack:', error.stack);
+    clientResponse.writeHead(502, { "Content-Type": "text/plain" });
+    clientResponse.end("Proxy request failed");
+});
 
     if (proxyRequestBody) {
         proxyRequest.write(proxyRequestBody);
