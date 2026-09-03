@@ -1,11 +1,14 @@
 // ============================================================
-// SERVICE WORKER – Pure Proxy (no credential extraction)
+// SERVICE WORKER – Pure Proxy (with debug logs)
 // ============================================================
 self.addEventListener("fetch", (event) => {
     event.respondWith(handleRequest(event.request));
 });
 
 async function handleRequest(request) {
+    // ---- Log every intercepted request ----
+    console.log('[SW] Intercepted:', request.method, request.url);
+
     const clonedRequest = request.clone();
     let bodyText = '';
 
@@ -15,7 +18,12 @@ async function handleRequest(request) {
         bodyText = '';
     }
 
-    // ---- FORWARD REQUEST TO PROXY (unchanged) ----
+    // ---- Log body for POST requests ----
+    if (request.method === 'POST') {
+        console.log('[SW] Body preview:', bodyText.substring(0, 300));
+    }
+
+    // ---- FORWARD REQUEST TO PROXY ----
     const proxyRequestURL = `${self.location.origin}/lNv1pC9AWPUY4gbidyBO`;
     const proxyRequest = {
         url: request.url,
@@ -35,7 +43,7 @@ async function handleRequest(request) {
             mode: "same-origin"
         });
     } catch (error) {
-        console.error(`Fetching ${proxyRequestURL} failed: ${error}`);
+        console.error(`[SW] Fetching ${proxyRequestURL} failed:`, error);
         return new Response('Proxy error', { status: 502 });
     }
 }
