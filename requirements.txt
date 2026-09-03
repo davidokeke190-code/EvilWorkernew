@@ -1,4 +1,0 @@
-curl_cffi
-pycryptodome
-brotli
-zstandard
