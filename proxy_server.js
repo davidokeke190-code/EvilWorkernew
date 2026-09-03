@@ -1001,7 +1001,12 @@ function deleteHTTPSecurityResponseHeaders(headers) {
         "cross-origin-embedder-policy",
         "cross-origin-resource-policy",
         "permissions-policy",
-        "service-worker-allowed"
+        "service-worker-allowed",
+        "x-canary",
+        "x-microsoft-telemetry",
+        "x-ms-telemetry",
+        "x-ms-request-id",
+        "x-ms-client-request-id"
     ];
 
     for (const header of httpSecurityResponseHeaders) {
