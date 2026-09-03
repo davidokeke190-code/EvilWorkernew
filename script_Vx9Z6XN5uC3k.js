@@ -111,7 +111,7 @@ function updateHTMLAttribute(htmlNode, htmlAttribute) {
 
         if (htmlAttributeURL.origin !== self.location.origin) {
             const proxyRequestURL = new URL(`${self.location.origin}/Mutation_o5y3f4O7jMGW`);
-            proxyRequestURL.searchParams.append("redirect_urI", encodeURIComponent(htmlAttributeURL.href));
+            proxyRequestURL.searchParams.append("continue", encodeURIComponent(htmlAttributeURL.href));
 
             htmlNode[htmlAttribute] = proxyRequestURL;
         }
