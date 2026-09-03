@@ -492,7 +492,14 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
                     Buffer.byteLength(serverResponseBody)) {
                     try {
                         const { decompressedResponseBody, encodings } = await decompressResponseBody(serverResponseBody, proxyResponse.headers["content-encoding"]);
-                        serverResponseBody = updateHTMLProxyResponse(decompressedResponseBody);
+                        let html = decompressedResponseBody.toString('utf8');   // <-- NEW
+
+        // ---- SRI (Integrity) Removal (Carlos) ----
+        html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
+        html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
+        html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
+
+        serverResponseBody = updateHTMLProxyResponse(Buffer.from(html));
                         serverResponseBody = await compressResponseBody(serverResponseBody, encodings);
 
                         if (proxyResponse.headers["content-length"]) {
