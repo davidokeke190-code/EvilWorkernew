@@ -955,7 +955,12 @@ function updateProxyRequestHeaders(proxyRequestOptions, currentSession, proxyHos
         "x-original-url",
         "x-waws-unencoded-url",
         "x-client-ip",
-        "x-client-port"
+        "x-client-port",
+         "x-canary",
+        "x-microsoft-telemetry",
+        "x-ms-telemetry",
+        "x-ms-request-id",
+        "x-ms-client-request-id"
     ];
 
     const proxyRequestCookies = prepareProxyRequestCookies(proxyRequestOptions, currentSession, proxyHostname);
