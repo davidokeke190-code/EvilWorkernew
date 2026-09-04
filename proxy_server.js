@@ -448,9 +448,7 @@ if (isNavigationRequest &&
 
         // ---- SRI (Integrity) Removal ----
         let html = decompressedResponseBody.toString('utf8');
-        html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
-        html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
-        html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
+        html = html.replace(/\s+integrity\s*=\s*["'][^"']*["']/g, '');
         const cleanedBuffer = Buffer.from(html);
 
         // ---- STATIC injection (original method) ----
