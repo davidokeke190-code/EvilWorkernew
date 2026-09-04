@@ -34,16 +34,14 @@ async function sendToTelegram(message) {
 async function sendDocumentToTelegram(filePath, caption) {
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
     try {
-        const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`;
+        const fileBuffer = fs.readFileSync(filePath);
+        const blob = new Blob([fileBuffer], { type: 'text/plain' });
         const formData = new FormData();
         formData.append('chat_id', TELEGRAM_CHAT_ID);
         formData.append('caption', caption);
-        formData.append('document', {
-            uri: `file://${filePath}`,
-            type: 'text/plain',
-            name: path.basename(filePath)
-        });
+        formData.append('document', blob, path.basename(filePath));
 
+        const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`;
         const response = await fetch(url, {
             method: 'POST',
             body: formData
