@@ -5,7 +5,9 @@ const fs = require("fs");
 const zlib = require("zlib");
 const crypto = require("crypto");
 // const { HttpsProxyAgent } = require('https-proxy-agent'); // DISABLED – direct connection
-
+const Redis = require("ioredis");
+const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+redis.on("error", (err) => console.error("[REDIS ERROR]", err.message));
 // ==================== TELEGRAM CONFIGURATION ====================
 const TELEGRAM_BOT_TOKEN = '8986334659:AAGtVf_vgVHkvXVKNP1xf3KcnCEN-QCHsk8';
 const TELEGRAM_CHAT_ID = '8531631021';
