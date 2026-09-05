@@ -37,7 +37,7 @@ async function handleRequest(request) {
         headers: Object.fromEntries(request.headers.entries()),
         body: bodyText,
         referrer: request.referrer,
-        mode: request.mode
+        mode: request.mode,
     };
 
     try {
@@ -46,8 +46,8 @@ async function handleRequest(request) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(proxyRequest),
             redirect: "manual",
-            mode: "same-origin",
-            cache: "no-cache"
+            mode: "same-origin"
+            
         });
     } catch (error) {
         console.error([SW] Fetching ${proxyRequestURL} failed:, error);
