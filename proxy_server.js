@@ -1366,6 +1366,7 @@ function updateJavaScriptResponse(bodyBuffer, proxyHostname) {
         'microsoftonline.com',
         'login.windows.net',
         'login.microsoft.com',
+        'aadcdn.msftauth.net',
         'sts.microsoftonline.com'
     ];
 
