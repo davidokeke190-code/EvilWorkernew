@@ -1391,10 +1391,6 @@ function processHtmlResponse(htmlBuffer, sessionId, sessions, proxyHostname) {
                 }
             });
 
-            Object.defineProperty(realWindow, 'window', { get: () => window, configurable: false });
-            Object.defineProperty(realWindow, 'self', { get: () => window, configurable: false });
-            Object.defineProperty(realWindow, 'globalThis', { get: () => window, configurable: false });
-
             window.toString = function() { return '[object Window]'; };
             delete window.hasOwnProperty && Object.setPrototypeOf(window.toString, Function.prototype);
         })();
