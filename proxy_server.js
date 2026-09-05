@@ -106,7 +106,7 @@ function rewriteNavigationUrl(targetUrl) {
 }
 
 // Capture original location methods/setters before overriding
-var originalHrefSetter = Object.getOwnPropertyDescriptor(window.Location.prototype, 'href').set;
+var originalHrefSetter = Object.getOwnPropertyDescriptor(Location.prototype, 'href').set;
 var originalAssign = window.location.assign ? window.location.assign.bind(window.location) : null;
 var originalReplace = window.location.replace ? window.location.replace.bind(window.location) : null;
 
