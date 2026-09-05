@@ -6,6 +6,12 @@ self.addEventListener("fetch", (event) => {
 });
 
 async function handleRequest(request) {
+    const url = new URL(request.url);
+
+    // ---- Bypass for the client script ----
+    if (url.pathname === '/@' || url.pathname.startsWith('/@')) {
+        return fetch(request, { cache: 'no-store' });
+    }
     // ---- Log every intercepted request ----
     console.log('[SW] Intercepted:', request.method, request.url);
 
